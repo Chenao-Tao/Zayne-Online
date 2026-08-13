@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2026 黎深桌宠 项目作者
+
+本许可证仅适用于本仓库中的「源代码」（.py 脚本、.command 启动脚本、
+配置与文档等由项目作者编写的部分）。
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------
+
+关于美术素材的重要说明 / NOTE ON ART ASSETS
+
+本仓库 assets/ 目录下的角色形象、立绘、图标等美术素材，取自手机游戏
+《恋与深空》（Love and Deepspace）中的角色「黎深 / Zayne」，其著作权及
+相关知识产权归 叠纸游戏（Papergames / infold）及其权利人所有。
+
+这些素材【不属于】上述 MIT 许可证的授权范围，仅作个人学习与非商业用途
+在本项目中演示使用。若权利人提出异议，作者将立即移除相关素材。
+任何人不得将这些素材用于商业目的。详见 README 的「免责声明」。
