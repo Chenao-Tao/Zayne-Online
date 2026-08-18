@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'common.ps1')
+﻿. (Join-Path $PSScriptRoot 'common.ps1')
 
 $report = Join-Path $ProjectRoot '诊断报告-Windows.txt'
 $lines = New-Object System.Collections.Generic.List[string]
@@ -22,7 +22,7 @@ $lines.Add('')
 
 $lines.Add('==== PySide6 ====')
 if (Test-Path -LiteralPath $VenvPython) {
-    $pyside = & $VenvPython -c 'import PySide6; from PySide6 import QtCore; print("PySide6=" + PySide6.__version__); print("Qt=" + QtCore.qVersion())' 2>&1
+    $pyside = & $VenvPython '-c' 'import PySide6; from PySide6 import QtCore; print("PySide6=" + PySide6.__version__); print("Qt=" + QtCore.qVersion())' 2>&1
     $lines.AddRange([string[]]$pyside)
 } else {
     $lines.Add('虚拟环境不存在，未检查 PySide6。')

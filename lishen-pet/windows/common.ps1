@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -64,21 +64,22 @@ function Ensure-LishenEnvironment {
             throw '未找到可用的 64 位 Python 3.10–3.14。请先安装 Python 3.12 或 3.13，并勾选 Add python.exe to PATH。'
         }
         Write-Host "正在使用 Python $($basePython.Version) 创建虚拟环境……"
-        Invoke-Python $basePython @('-m', 'venv', $VenvDir)
+        Invoke-Python -Python $basePython -Arguments @('-m', 'venv', $VenvDir)
     }
 
     if (-not (Test-Path -LiteralPath $VenvPython)) {
         throw "虚拟环境创建失败：$VenvPython"
     }
 
-    & $VenvPython -c 'import PySide6' 2>$null
+    & $VenvPython '-c' 'import PySide6' 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host '正在安装 PySide6 依赖，首次运行需要联网……'
-        & $VenvPython -m pip install --upgrade pip | Out-Host
+        & $VenvPython '-m' 'pip' 'install' '--upgrade' 'pip' | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw 'pip 升级失败，请检查网络或代理设置。'
         }
-        & $VenvPython -m pip install -r (Join-Path $ProjectRoot 'requirements.txt') | Out-Host
+        $requirements = Join-Path $ProjectRoot 'requirements.txt'
+        & $VenvPython '-m' 'pip' 'install' '-r' $requirements | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw '依赖安装失败，请查看上方 pip 错误信息。'
         }

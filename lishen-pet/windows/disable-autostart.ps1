@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'common.ps1')
+﻿. (Join-Path $PSScriptRoot 'common.ps1')
 
 $startup = [Environment]::GetFolderPath('Startup')
 $shortcutPath = Join-Path $startup '黎深桌宠.lnk'
