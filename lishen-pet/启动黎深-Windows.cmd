@@ -1,6 +1,5 @@
 @echo off
 setlocal
 chcp 65001 >nul
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0windows\launch.ps1"
-if errorlevel 1 pause
+start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0windows\native-pet.ps1"
 endlocal

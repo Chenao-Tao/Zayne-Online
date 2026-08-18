@@ -49,35 +49,33 @@ python main.py
 
 ---
 
-## 🚀 安装与运行（Windows 11）
+## 🚀 安装与运行（Windows 11，无需 Python）
 
-> 需要先安装官方 64 位 Python 3.12 或 3.13，并在安装器中勾选 **Add python.exe to PATH**。
-> 项目不会修改系统 Python，只会在本目录创建独立的 `.venv`。
+> Windows 版本默认使用系统自带的 PowerShell 5.1 和 .NET WinForms，**不需要安装 Python、PySide6 或其他运行库**。
 
 **最简单：双击运行**
 
 1. 将整个 `lishen-pet` 文件夹放到本地路径。
-2. 双击 `启动黎深-Windows.cmd`。首次运行会自动创建 `.venv` 并安装 `requirements.txt`，之后直接启动桌宠。
+2. 双击 `启动黎深-Windows.cmd`，即可直接启动桌宠。
 3. 想让他随当前用户开机启动：双击 `设置开机自启-Windows.cmd`。
 4. 想取消：双击 `取消开机自启-Windows.cmd`。
 
-依赖安装失败时，先在 PowerShell 中确认 `py -3.12 --version` 或 `py -3.13 --version` 能正常输出版本，再重新运行启动脚本。
+如果桌宠没有出现，先双击 `诊断-Windows.cmd`，查看生成的 `诊断报告-Windows.txt`。
 
-**或者：手动用 PowerShell**
+**手动用 PowerShell**
 
 ```powershell
 cd lishen-pet
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe main.py
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File .\windows\native-pet.ps1
 ```
 
 **诊断与自检**
 
 - `诊断-Windows.cmd`：生成 `诊断报告-Windows.txt`。
 - `测试主程序-Windows.cmd`：运行 3 秒并生成 `主程序测试输出.txt`。
+- `启动黎深-Windows-Python.cmd`：可选的 PySide6/Python 版本，适合开发和调试。
 
-Windows 版本不使用 macOS 的 `.command` 文件；macOS 版本仍按上面的 macOS 章节运行。
+Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按上面的 macOS 章节运行。
 
 ---
 
@@ -120,11 +118,12 @@ lishen-pet/
 ├── 启动黎深.command       # 一键启动
 ├── 设置开机自启.command    # 一键开机自启（launchd）
 ├── 启动黎深-Windows.cmd   # Windows 一键启动
+├── 启动黎深-Windows-Python.cmd # 可选 Python/PySide6 版本
 ├── 设置开机自启-Windows.cmd
 ├── 取消开机自启-Windows.cmd
 ├── 测试主程序-Windows.cmd
 ├── 诊断-Windows.cmd
-├── windows/               # Windows PowerShell 安装、启动、自启和诊断脚本
+├── windows/               # Windows 原生 PowerShell 与可选 Python 脚本
 ├── requirements.txt
 └── 安装与使用说明.md
 ```

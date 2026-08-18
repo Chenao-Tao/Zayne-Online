@@ -9,4 +9,4 @@
 快速入口：
 
 - macOS：双击 `lishen-pet/启动黎深.command`
-- Windows 11：先安装 64 位 Python 3.12/3.13，再双击 `lishen-pet/启动黎深-Windows.cmd`
+- Windows 11：无需安装 Python，直接双击 `lishen-pet/启动黎深-Windows.cmd`
