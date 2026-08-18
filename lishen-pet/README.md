@@ -1,6 +1,6 @@
 # 黎深桌宠 · Lishen Desktop Pet
 
-一只会陪你的 macOS 桌面小宠物。以《恋与深空》角色 **黎深（Zayne）** 的口吻，
+一只会陪你的 macOS / Windows 桌面小宠物。以《恋与深空》角色 **黎深（Zayne）** 的口吻，
 在整点、饭点和深夜随机冒出一句短短的关心；点他一下，他会回你话。悬浮、透明、
 置顶，可以拖着到处走，气泡会跟着他一起动。
 
@@ -20,8 +20,8 @@
 - **点击互动**：戳一下弹出"被戳"台词（"专心。""戳我，是想说什么吗？"…）。
 - **磨砂气泡**：仿聊天界面的淡蓝圆角气泡 + 小尾巴 + 柔和阴影，拖动时同步跟随。
 - **菜单栏控制**：让他说句话 / 显示·隐藏桌宠 / 暂停提醒 / 退出。
-- **可选系统通知**：气泡的同时可一并发 macOS 通知。
-- **开机自启**：一键生成 launchd 配置，让他每次开机自动上线。
+- **可选系统通知**：气泡的同时可一并发系统通知。
+- **开机自启**：macOS 使用 launchd，Windows 使用当前用户 Startup 文件夹。
 
 ---
 
@@ -46,6 +46,38 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
+
+---
+
+## 🚀 安装与运行（Windows 11）
+
+> 需要先安装官方 64 位 Python 3.12 或 3.13，并在安装器中勾选 **Add python.exe to PATH**。
+> 项目不会修改系统 Python，只会在本目录创建独立的 `.venv`。
+
+**最简单：双击运行**
+
+1. 将整个 `lishen-pet` 文件夹放到本地路径。
+2. 双击 `启动黎深-Windows.cmd`。首次运行会自动创建 `.venv` 并安装 `requirements.txt`，之后直接启动桌宠。
+3. 想让他随当前用户开机启动：双击 `设置开机自启-Windows.cmd`。
+4. 想取消：双击 `取消开机自启-Windows.cmd`。
+
+依赖安装失败时，先在 PowerShell 中确认 `py -3.12 --version` 或 `py -3.13 --version` 能正常输出版本，再重新运行启动脚本。
+
+**或者：手动用 PowerShell**
+
+```powershell
+cd lishen-pet
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe main.py
+```
+
+**诊断与自检**
+
+- `诊断-Windows.cmd`：生成 `诊断报告-Windows.txt`。
+- `测试主程序-Windows.cmd`：运行 3 秒并生成 `主程序测试输出.txt`。
+
+Windows 版本不使用 macOS 的 `.command` 文件；macOS 版本仍按上面的 macOS 章节运行。
 
 ---
 
@@ -87,6 +119,12 @@ lishen-pet/
 ├── make_anim.py          # 动画合成脚本（制作用）
 ├── 启动黎深.command       # 一键启动
 ├── 设置开机自启.command    # 一键开机自启（launchd）
+├── 启动黎深-Windows.cmd   # Windows 一键启动
+├── 设置开机自启-Windows.cmd
+├── 取消开机自启-Windows.cmd
+├── 测试主程序-Windows.cmd
+├── 诊断-Windows.cmd
+├── windows/               # Windows PowerShell 安装、启动、自启和诊断脚本
 ├── requirements.txt
 └── 安装与使用说明.md
 ```

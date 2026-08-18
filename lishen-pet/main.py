@@ -428,6 +428,7 @@ def main():
         raise
     except BaseException:
         log_err("启动")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
