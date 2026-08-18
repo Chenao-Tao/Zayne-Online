@@ -75,6 +75,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File .\wi
 - `测试主程序-Windows.cmd`：运行 3 秒并生成 `主程序测试输出.txt`。
 - `启动黎深-Windows-Python.cmd`：可选的 PySide6/Python 版本，适合开发和调试。
 
+**切换角色**
+
+启动后右键托盘图标，打开 **切换角色**，可以选择 **星星** 或 **黎深**。默认角色是星星；不同提醒和点击互动会自动使用对应的动作素材。
+
 Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按上面的 macOS 章节运行。
 
 ---
@@ -113,6 +117,7 @@ lishen-pet/
 ├── main.py               # 桌宠主程序（PySide6）
 ├── data/lines.json       # 台词库（分类，可自定义）
 ├── assets/               # 帧图、动图、图标（美术素材，见免责声明）
+│   └── star/             # 星星角色 GIF 动作素材
 ├── cut_and_matte.py      # 抠图脚本（制作用）
 ├── make_anim.py          # 动画合成脚本（制作用）
 ├── 启动黎深.command       # 一键启动

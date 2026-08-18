@@ -14,8 +14,9 @@ import sys, os, json, random, time, traceback
 from collections import deque, defaultdict
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer, QRect, QRectF
+from PySide6.QtCore import Qt, QTimer, QRect, QRectF, QSize
 from PySide6.QtGui import (QPixmap, QIcon, QAction, QPainter, QPainterPath,
+                           QMovie,
                            QPen, QColor, QFont, QFontMetrics)
 from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QSystemTrayIcon,
                                QMenu, QGraphicsDropShadowEffect)
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QSystemTrayIcon,
 APP_DIR   = os.path.dirname(os.path.abspath(__file__))
 ASSET_DIR = os.path.join(APP_DIR, "assets")
 FRAME_DIR = os.path.join(ASSET_DIR, "frames")
+STAR_DIR  = os.path.join(ASSET_DIR, "star")
 DATA_FILE = os.path.join(APP_DIR, "data", "lines.json")
 LOG_FILE  = os.path.join(APP_DIR, "error.log")
 DBG_FILE  = os.path.join(APP_DIR, "run.log")
@@ -55,6 +57,18 @@ NOTIFY_TOO      = True    # 除了气泡，是否同时发系统通知
 # 动画：帧序列 + 每帧时长(毫秒)。frame_0..5 对应六个表情。
 ANIM_SEQ   = [0, 0, 1, 3, 2, 4, 5, 0]
 ANIM_MS    = [1400, 200, 500, 700, 900, 700, 600, 400]
+
+STAR_ACTIONS = {
+    "idle": ["沈星回喵：嗨.gif", "沈星回喵：呆.gif", "沈星回喵：右摇摆.gif", "沈星回喵：左摇摆.gif"],
+    "greeting": ["沈星回喵：嗨.gif", "沈星回喵：兔叽咪.gif"],
+    "poke": ["沈星回喵：玩.gif", "沈星回喵：兔叽咪.gif", "沈星回喵：糟糕.gif"],
+    "lunch": ["沈星回喵：饿了.gif", "沈星回喵：嚼嚼嚼.gif", "沈星回喵：吃撑了.gif"],
+    "dinner": ["沈星回喵：饿了.gif", "沈星回喵：嚼嚼嚼.gif", "沈星回喵：吃撑了.gif"],
+    "night": ["沈星回喵：打瞌睡.gif", "沈星回喵：躺平.gif"],
+    "cheer": ["沈星回喵：热舞正面.gif", "沈星回喵：热舞转身.gif", "沈星回喵：左拎喵喵.gif", "沈星回喵：右拎喵喵.gif"],
+    "miss": ["沈星回喵：兔叽咪.gif", "沈星回喵：玩.gif"],
+    "weather": ["沈星回喵：左摇摆.gif", "沈星回喵：右摇摆.gif"],
+}
 
 
 def log_err(where=""):
@@ -204,6 +218,9 @@ class Pet(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.lines = lines
         self.bubble = bubble
+        self.character = "lishen"
+        self._movie = None
+        self._star_movies = {}
 
         self.frames = []
         for i in range(6):
@@ -229,12 +246,72 @@ class Pet(QWidget):
         self._drag_pos = None
         self._moved = False
 
+    def _star_movie(self, filename):
+        movie = self._star_movies.get(filename)
+        if movie is None:
+            path = os.path.join(STAR_DIR, filename)
+            if not os.path.exists(path):
+                log_err(f"缺少星星动作素材: {path}")
+                return None
+            movie = QMovie(path)
+            movie.setCacheMode(QMovie.CacheAll)
+            self._star_movies[filename] = movie
+        return movie
+
+    def _resize_for_size(self, size):
+        if size.isEmpty() or size.height() <= 0:
+            return
+        w = max(100, int(size.width() * PET_HEIGHT / size.height()))
+        self.resize(w, PET_HEIGHT)
+        self.label.resize(self.size())
+
+    def _set_star_action(self, category):
+        files = STAR_ACTIONS.get(category) or STAR_ACTIONS["idle"]
+        movie = self._star_movie(random.choice(files))
+        if movie is None:
+            return
+        if self._movie is not None:
+            self._movie.stop()
+        self._movie = movie
+        movie.start()
+        size = movie.frameRect().size()
+        if size.isEmpty():
+            size = QSize(PET_HEIGHT, PET_HEIGHT)
+        movie.setScaledSize(QSize(max(100, int(size.width() * PET_HEIGHT / size.height())), PET_HEIGHT))
+        self.label.setMovie(movie)
+        self._resize_for_size(movie.scaledSize())
+
+    def set_character(self, character):
+        if character not in ("star", "lishen"):
+            return
+        self.character = character
+        if character == "star":
+            self.anim.stop()
+            self._set_star_action("idle")
+            return
+        if self._movie is not None:
+            self._movie.stop()
+            self._movie = None
+        self.label.setMovie(None)
+        w = max((f.width() for f in self.frames if not f.isNull()), default=160)
+        self.resize(w, PET_HEIGHT)
+        self.label.resize(self.size())
+        self._seq_i = 0
+        self._set_frame(ANIM_SEQ[0])
+        self.anim.start(ANIM_MS[0])
+
+    def set_category_action(self, category):
+        if self.character == "star":
+            self._set_star_action(category)
+
     def _set_frame(self, idx):
         if 0 <= idx < len(self.frames) and not self.frames[idx].isNull():
             self.label.setPixmap(self.frames[idx])
 
     def _advance(self):
         try:
+            if self.character != "lishen":
+                return
             self._seq_i = (self._seq_i + 1) % len(ANIM_SEQ)
             self._set_frame(ANIM_SEQ[self._seq_i])
             self.anim.start(ANIM_MS[self._seq_i])
@@ -250,6 +327,7 @@ class Pet(QWidget):
             log_err("显示气泡")
 
     def say_category(self, cat):
+        self.set_category_action(cat)
         self.say(self.lines.pick(cat))
 
     def mousePressEvent(self, e):
@@ -287,6 +365,9 @@ class Controller:
         self.bubble = Bubble()
         dbg("Controller: 创建桌宠")
         self.pet = Pet(self.lines, self.bubble)
+        self.character = "star"
+        self.character_name = "星星"
+        self.pet.set_character(self.character)
         dbg("Controller: 显示桌宠")
         self.pet.show()
         self.reminders_on = True
@@ -294,23 +375,34 @@ class Controller:
         dbg("Controller: 创建托盘图标")
         icon_path = os.path.join(ASSET_DIR, "icon_256.png")
         self.tray = QSystemTrayIcon(QIcon(icon_path), app)
-        self.tray.setToolTip("黎深")
+        self.tray.setToolTip("星星")
         dbg("Controller: 创建菜单")
         menu = QMenu()
-        act_say = QAction("让黎深说句话", app)
-        act_say.triggered.connect(self.say_now)
+        self.act_say = QAction("让星星说句话", app)
+        self.act_say.triggered.connect(self.say_now)
         act_toggle = QAction("显示 / 隐藏桌宠", app)
         act_toggle.triggered.connect(self.toggle_pet)
         self.act_rem = QAction("暂停提醒", app)
         self.act_rem.triggered.connect(self.toggle_reminders)
+        character_menu = QMenu("切换角色", menu)
+        act_star = QAction("星星（默认）", app)
+        act_lishen = QAction("黎深", app)
+        act_star.triggered.connect(lambda: self.set_character("star"))
+        act_lishen.triggered.connect(lambda: self.set_character("lishen"))
+        character_menu.addAction(act_star)
+        character_menu.addAction(act_lishen)
         act_quit = QAction("退出", app)
         act_quit.triggered.connect(app.quit)
-        for a in (act_say, act_toggle, self.act_rem):
+        menu.addMenu(character_menu)
+        menu.addSeparator()
+        for a in (self.act_say, act_toggle, self.act_rem):
             menu.addAction(a)
         menu.addSeparator()
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_click)
+        self._character_actions = {"star": act_star, "lishen": act_lishen}
+        self.set_character("star")
         dbg("Controller: 显示托盘")
         self.tray.show()
 
@@ -323,6 +415,18 @@ class Controller:
         self.sched.timeout.connect(self._tick)
         self.sched.start(30_000)
         dbg("Controller: 初始化完成")
+
+    def set_character(self, character):
+        if character not in ("star", "lishen"):
+            return
+        self.character = character
+        self.character_name = "星星" if character == "star" else "黎深"
+        self.pet.set_character(character)
+        self.tray.setToolTip(self.character_name)
+        self.act_say.setText(f"让{self.character_name}说句话")
+        for key, action in self._character_actions.items():
+            action.setCheckable(True)
+            action.setChecked(key == character)
 
     def _tray_click(self, reason):
         if reason == QSystemTrayIcon.Trigger:

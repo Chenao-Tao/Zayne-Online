@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $AssetRoot = Join-Path $ProjectRoot 'assets'
 $FrameRoot = Join-Path $AssetRoot 'frames'
+$StarRoot = Join-Path $AssetRoot 'star'
 $LinesPath = Join-Path $ProjectRoot 'data\lines.json'
 $RunLog = Join-Path $ProjectRoot 'run.log'
 $ErrorLog = Join-Path $ProjectRoot 'error.log'
@@ -73,6 +74,28 @@ try {
         } finally {
             $source.Dispose()
         }
+    }
+
+    Write-RunLog '加载星星角色素材'
+    $script:StarActionMap = @{
+        idle = @('沈星回喵：嗨.gif', '沈星回喵：呆.gif', '沈星回喵：右摇摆.gif', '沈星回喵：左摇摆.gif')
+        greeting = @('沈星回喵：嗨.gif', '沈星回喵：兔叽咪.gif')
+        poke = @('沈星回喵：玩.gif', '沈星回喵：兔叽咪.gif', '沈星回喵：糟糕.gif')
+        lunch = @('沈星回喵：饿了.gif', '沈星回喵：嚼嚼嚼.gif', '沈星回喵：吃撑了.gif')
+        dinner = @('沈星回喵：饿了.gif', '沈星回喵：嚼嚼嚼.gif', '沈星回喵：吃撑了.gif')
+        night = @('沈星回喵：打瞌睡.gif', '沈星回喵：躺平.gif')
+        cheer = @('沈星回喵：热舞正面.gif', '沈星回喵：热舞转身.gif', '沈星回喵：左拎喵喵.gif', '沈星回喵：右拎喵喵.gif')
+        miss = @('沈星回喵：兔叽咪.gif', '沈星回喵：玩.gif')
+        weather = @('沈星回喵：左摇摆.gif', '沈星回喵：右摇摆.gif')
+    }
+    $script:StarImages = @{}
+    $starFiles = @($script:StarActionMap.Values | ForEach-Object { $_ } | Select-Object -Unique)
+    foreach ($fileName in $starFiles) {
+        $path = Join-Path $StarRoot $fileName
+        if (-not (Test-Path -LiteralPath $path)) {
+            throw "缺少星星动作素材：$path"
+        }
+        $script:StarImages[$fileName] = [System.Drawing.Image]::FromFile($path)
     }
 
     $petHeight = 170
@@ -180,8 +203,65 @@ try {
     Write-RunLog '创建系统托盘'
     $tray = New-Object System.Windows.Forms.NotifyIcon
     $tray.Icon = [System.Drawing.SystemIcons]::Information
-    $tray.Text = '黎深桌宠'
+    $tray.Text = '星星桌宠'
     $tray.Visible = $true
+
+    $script:CurrentCharacter = 'star'
+    $script:CurrentCharacterName = '星星'
+
+    function Resize-PetForImage {
+        param([System.Drawing.Image]$Image)
+        $centerX = $petForm.Left + [int]($petForm.Width / 2)
+        $bottom = $petForm.Bottom
+        $width = [Math]::Max(100, [int]($Image.Width * $petHeight / $Image.Height))
+        $petForm.ClientSize = New-Object System.Drawing.Size($width, $petHeight)
+        $petForm.Location = New-Object System.Drawing.Point(
+            ($centerX - [int]($width / 2)),
+            ($bottom - $petHeight)
+        )
+        Move-Bubble
+    }
+
+    function Set-CharacterAction {
+        param([string]$Category)
+        if ($script:CurrentCharacter -ne 'star') {
+            return
+        }
+        $files = $script:StarActionMap[$Category]
+        if ($null -eq $files) {
+            $files = $script:StarActionMap['idle']
+        }
+        $fileName = @($files) | Get-Random
+        $image = $script:StarImages[$fileName]
+        $picture.Image = $image
+        Resize-PetForImage -Image $image
+    }
+
+    function Set-Character {
+        param([ValidateSet('star', 'lishen')][string]$Character)
+        $script:CurrentCharacter = $Character
+        if ($Character -eq 'star') {
+            $script:CurrentCharacterName = '星星'
+            $animationTimer.Stop()
+            Set-CharacterAction -Category 'idle'
+        } else {
+            $script:CurrentCharacterName = '黎深'
+            $picture.Image = $script:Frames[0]
+            Resize-PetForImage -Image $script:Frames[0]
+            $script:AnimationIndex = 0
+            $animationTimer.Interval = $animationDurations[0]
+            $animationTimer.Start()
+        }
+        $tray.Text = "$($script:CurrentCharacterName)桌宠"
+        if ($null -ne (Get-Variable sayItem -ValueOnly -ErrorAction SilentlyContinue)) {
+            $sayItem.Text = "让$($script:CurrentCharacterName)说句话"
+        }
+        if ($null -ne (Get-Variable starItem -ValueOnly -ErrorAction SilentlyContinue)) {
+            $starItem.Checked = $Character -eq 'star'
+            $lishenItem.Checked = $Character -eq 'lishen'
+        }
+        Write-RunLog "切换角色：$($script:CurrentCharacterName)"
+    }
 
     function Speak-Category {
         param(
@@ -195,9 +275,10 @@ try {
         if (-not $petForm.Visible) {
             $petForm.Show()
         }
+        Set-CharacterAction -Category $Category
         Show-Bubble -Text $line
         if ($Notify) {
-            $tray.BalloonTipTitle = '黎深'
+            $tray.BalloonTipTitle = $script:CurrentCharacterName
             $tray.BalloonTipText = $line
             $tray.ShowBalloonTip(6000)
         }
@@ -217,7 +298,12 @@ try {
     }
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
-    $sayItem = $menu.Items.Add('让黎深说句话')
+    $characterMenu = New-Object System.Windows.Forms.ToolStripMenuItem('切换角色')
+    $starItem = $characterMenu.DropDownItems.Add('星星（默认）')
+    $lishenItem = $characterMenu.DropDownItems.Add('黎深')
+    [void]$menu.Items.Add($characterMenu)
+    [void]$menu.Items.Add('-')
+    $sayItem = $menu.Items.Add('让星星说句话')
     $toggleItem = $menu.Items.Add('显示 / 隐藏桌宠')
     $reminderItem = $menu.Items.Add('暂停提醒')
     [void]$menu.Items.Add('-')
@@ -225,6 +311,9 @@ try {
     $tray.ContextMenuStrip = $menu
     $script:RemindersOn = $true
 
+    $starItem.Checked = $true
+    $starItem.Add_Click({ Set-Character -Character 'star' })
+    $lishenItem.Add_Click({ Set-Character -Character 'lishen' })
     $sayItem.Add_Click({ Speak-Now })
     $toggleItem.Add_Click({
         if ($petForm.Visible) {
@@ -290,11 +379,15 @@ try {
     $animationTimer = New-Object System.Windows.Forms.Timer
     $animationTimer.Interval = $animationDurations[0]
     $animationTimer.Add_Tick({
+        if ($script:CurrentCharacter -ne 'lishen') {
+            return
+        }
         $script:AnimationIndex = ($script:AnimationIndex + 1) % $animationSequence.Count
         $picture.Image = $script:Frames[$animationSequence[$script:AnimationIndex]]
         $animationTimer.Interval = $animationDurations[$script:AnimationIndex]
     })
     $animationTimer.Start()
+    Set-Character -Character 'star'
 
     function Get-NextHourlyTime {
         $now = Get-Date
@@ -350,6 +443,8 @@ try {
     $greetingTimer.Start()
 
     if ($SelfTest -or $env:LISHEN_SELFTEST) {
+        Set-Character -Character 'lishen'
+        Set-Character -Character 'star'
         Write-RunLog '自检模式：3 秒后退出'
         $selfTestTimer = New-Object System.Windows.Forms.Timer
         $selfTestTimer.Interval = 3000
@@ -381,6 +476,11 @@ try {
     if ($null -ne (Get-Variable Frames -Scope Script -ValueOnly -ErrorAction SilentlyContinue)) {
         foreach ($frame in $script:Frames) {
             $frame.Dispose()
+        }
+    }
+    if ($null -ne (Get-Variable StarImages -Scope Script -ValueOnly -ErrorAction SilentlyContinue)) {
+        foreach ($image in $script:StarImages.Values) {
+            $image.Dispose()
         }
     }
 }
