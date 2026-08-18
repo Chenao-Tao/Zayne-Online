@@ -184,7 +184,10 @@ try {
     $tray.Visible = $true
 
     function Speak-Category {
-        param([string]$Category)
+        param(
+            [string]$Category,
+            [switch]$Notify
+        )
         $line = Get-RandomLine -Category $Category
         if ([string]::IsNullOrWhiteSpace($line)) {
             return
@@ -193,9 +196,11 @@ try {
             $petForm.Show()
         }
         Show-Bubble -Text $line
-        $tray.BalloonTipTitle = '黎深'
-        $tray.BalloonTipText = $line
-        $tray.ShowBalloonTip(6000)
+        if ($Notify) {
+            $tray.BalloonTipTitle = '黎深'
+            $tray.BalloonTipText = $line
+            $tray.ShowBalloonTip(6000)
+        }
     }
 
     function Speak-Now {
@@ -310,25 +315,25 @@ try {
         $key = "$day-lunch"
         if ($now.Hour -eq 11 -and $now.Minute -lt 30 -and -not $script:Fired.ContainsKey($key)) {
             $script:Fired[$key] = $true
-            Speak-Category 'lunch'
+            Speak-Category -Category 'lunch' -Notify
             return
         }
         $key = "$day-dinner"
         if ($now.Hour -eq 18 -and $now.Minute -lt 30 -and -not $script:Fired.ContainsKey($key)) {
             $script:Fired[$key] = $true
-            Speak-Category 'dinner'
+            Speak-Category -Category 'dinner' -Notify
             return
         }
         $key = "$day-night"
         if ($now.Hour -eq 23 -and $now.Minute -ge 30 -and -not $script:Fired.ContainsKey($key)) {
             $script:Fired[$key] = $true
-            Speak-Category 'night'
+            Speak-Category -Category 'night' -Notify
             return
         }
         if ($now -ge $script:NextHourly) {
             $script:NextHourly = Get-NextHourlyTime
             if ($now.Hour -ge 7 -and $now.Hour -le 23) {
-                Speak-Category (@('daily', 'miss', 'cheer', 'weather') | Get-Random)
+                Speak-Category -Category (@('daily', 'miss', 'cheer', 'weather') | Get-Random) -Notify
             }
         }
     })
