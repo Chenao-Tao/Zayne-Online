@@ -385,7 +385,7 @@ public static class NativeIconMethods {
         foreach ($entry in $throwSensitivityItems.GetEnumerator()) {
             $entry.Value.Checked = ([int]$entry.Key -eq $SpeedPx)
         }
-        Write-RunLog "甩飞灵敏度：$SpeedPx"
+        Write-RunLog "触发门槛：$SpeedPx"
     }
 
     function Clamp-Number {
@@ -836,7 +836,7 @@ public static class NativeIconMethods {
     }
     $opacityItems[100].Checked = $true
     [void]$menu.Items.Add($opacityMenu)
-    $throwSensitivityMenu = New-Object System.Windows.Forms.ToolStripMenuItem('甩飞灵敏度')
+    $throwSensitivityMenu = New-Object System.Windows.Forms.ToolStripMenuItem('触发门槛')
     $throwSensitivityItems = @{}
     foreach ($itemDef in $ThrowSensitivityLevels) {
         $item = $throwSensitivityMenu.DropDownItems.Add($itemDef.Label)

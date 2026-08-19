@@ -576,7 +576,7 @@ class Controller:
         self.act_click_through = QAction("鼠标穿透（从托盘关闭）", app)
         self.act_click_through.setCheckable(True)
         self.act_click_through.toggled.connect(self.set_click_through)
-        throw_menu = QMenu("甩飞灵敏度", menu)
+        throw_menu = QMenu("触发门槛", menu)
         self._throw_speed_actions = {}
         for label, speed_px in THROW_SENSITIVITY_LEVELS:
             action = QAction(label, app)
@@ -789,7 +789,7 @@ class Controller:
         self.throw_speed_px = speed_px
         for value, action in self._throw_speed_actions.items():
             action.setChecked(value == speed_px)
-        dbg(f"甩飞灵敏度：{speed_px}")
+        dbg(f"触发门槛：{speed_px}")
 
     def throw_pet(self, direction, drag_start_pos, release_pos, speed):
         if self.pet.is_hanging() or self.pet_state in ("thrown", "angry", "feed"):
