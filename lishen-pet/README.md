@@ -14,12 +14,12 @@
 
 ## ✨ 功能
 
-- **悬浮桌宠**：透明置顶的小动画，可拖动到屏幕任意位置。
+- **悬浮桌宠**：透明置顶的小动画，可拖动到屏幕任意位置；星星拖到屏幕左右边缘后会切换为悬挂动作并自动吸附。
 - **定时关心**：整点随机（带 ±12 分钟抖动，仅 7–23 点）、11:00 午饭提醒、
   18:00 晚饭提醒、23:30 深夜哄睡，每类台词最近不重复。
 - **点击互动**：戳一下弹出"被戳"台词（"专心。""戳我，是想说什么吗？"…）。
 - **磨砂气泡**：仿聊天界面的淡蓝圆角气泡 + 小尾巴 + 柔和阴影，拖动时同步跟随。
-- **菜单栏控制**：让他说句话 / 显示·隐藏桌宠 / 暂停提醒 / 退出。
+- **菜单栏控制**：让角色说句话 / 显示·隐藏桌宠 / 暂停提醒 / 退出。
 - **可选系统通知**：气泡的同时可一并发系统通知。
 - **开机自启**：macOS 使用 launchd，Windows 使用当前用户 Startup 文件夹。
 
@@ -66,7 +66,7 @@ python main.py
 
 ```powershell
 cd lishen-pet
-powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File .\windows\native-pet.ps1
+wscript.exe .\windows\launch-native.vbs
 ```
 
 **诊断与自检**
@@ -78,6 +78,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File .\wi
 **切换角色**
 
 启动后右键托盘图标，打开 **切换角色**，可以选择 **星星** 或 **黎深**。默认角色是星星；不同提醒和点击互动会自动使用对应的动作素材。
+
+使用星星时，按住角色拖到当前屏幕左侧或右侧边缘并松开，即可显示对应的拎喵动作并悬挂在侧边；再次拖离侧边即可恢复普通随机动作。
 
 Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按上面的 macOS 章节运行。
 

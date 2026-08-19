@@ -33,6 +33,10 @@ try {
     $checks = @(
         [pscustomobject]@{ Name = 'STA 线程'; Pass = $content -match '线程单元：STA' },
         [pscustomobject]@{ Name = '托盘对象'; Pass = $content -match '托盘状态：Visible=True; Menu=True; PetMenu=True' },
+        [pscustomobject]@{ Name = '功能菜单'; Pass = $content -match '功能菜单：让角色说句话' },
+        [pscustomobject]@{ Name = '拖拽素材'; Pass = $content -match '拖拽动作素材已独立加载' },
+        [pscustomobject]@{ Name = '贴边悬挂'; Pass = $content -match '贴边悬挂：Left=True; Right=True' },
+        [pscustomobject]@{ Name = '悬挂保持'; Pass = $content -match '悬挂状态保持：True' },
         [pscustomobject]@{ Name = '角色切换'; Pass = $content -match '切换角色：黎深' -and $content -match '切换角色：星星' },
         [pscustomobject]@{ Name = '消息循环退出'; Pass = $content -match 'Windows 原生版已退出' },
         [pscustomobject]@{ Name = '无新终端'; Pass = $newTerminals.Count -eq 0 }

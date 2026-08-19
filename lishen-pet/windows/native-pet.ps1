@@ -96,7 +96,7 @@ public static class NativeIconMethods {
         lunch = @('沈星回喵：饿了.gif', '沈星回喵：嚼嚼嚼.gif', '沈星回喵：吃撑了.gif')
         dinner = @('沈星回喵：饿了.gif', '沈星回喵：嚼嚼嚼.gif', '沈星回喵：吃撑了.gif')
         night = @('沈星回喵：打瞌睡.gif', '沈星回喵：躺平.gif')
-        cheer = @('沈星回喵：热舞正面.gif', '沈星回喵：热舞转身.gif', '沈星回喵：左拎喵喵.gif', '沈星回喵：右拎喵喵.gif')
+        cheer = @('沈星回喵：热舞正面.gif', '沈星回喵：热舞转身.gif')
         miss = @('沈星回喵：兔叽咪.gif', '沈星回喵：玩.gif')
         weather = @('沈星回喵：左摇摆.gif', '沈星回喵：右摇摆.gif')
     }
@@ -109,6 +109,19 @@ public static class NativeIconMethods {
         }
         $script:StarImages[$fileName] = [System.Drawing.Image]::FromFile($path)
     }
+    $dragImagePaths = @{
+        left = Join-Path $StarRoot '沈星回喵：左拎喵喵.gif'
+        right = Join-Path $StarRoot '沈星回喵：右拎喵喵.gif'
+    }
+    $script:DragImages = @{}
+    foreach ($direction in @('left', 'right')) {
+        $path = $dragImagePaths[$direction]
+        if (-not (Test-Path -LiteralPath $path)) {
+            throw "缺少拖拽动作素材：$path"
+        }
+        $script:DragImages[$direction] = [System.Drawing.Image]::FromFile($path)
+    }
+    Write-RunLog '拖拽动作素材已独立加载'
 
     $petHeight = 170
     $petWidth = [Math]::Max(100, [int]($script:Frames[0].Width * $petHeight / $script:Frames[0].Height))
@@ -250,19 +263,69 @@ public static class NativeIconMethods {
         if ($script:CurrentCharacter -ne 'star') {
             return
         }
+        if (-not $script:Dragging -and $script:AttachedEdge -in @('left', 'right')) {
+            Set-DragImage -Direction $script:AttachedEdge
+            return
+        }
         $files = $script:StarActionMap[$Category]
         if ($null -eq $files) {
             $files = $script:StarActionMap['idle']
         }
         $fileName = @($files) | Get-Random
         $image = $script:StarImages[$fileName]
+        $script:DragDirection = $null
         $picture.Image = $image
         Resize-PetForImage -Image $image
+    }
+
+    function Set-DragImage {
+        param([ValidateSet('left', 'right')][string]$Direction)
+        if ($script:CurrentCharacter -ne 'star') {
+            return
+        }
+        if ($script:DragDirection -eq $Direction) {
+            return
+        }
+        $image = $script:DragImages[$Direction]
+        if ($null -ne $image) {
+            $picture.Image = $image
+            $script:DragDirection = $Direction
+            Resize-PetForImage -Image $image
+        }
+    }
+
+    function Get-ScreenWorkingArea {
+        $screen = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position)
+        return $screen.WorkingArea
+    }
+
+    function Snap-PetToEdge {
+        param([System.Drawing.Rectangle]$Area)
+        $nearLeft = $petForm.Left -le ($Area.Left + 32)
+        $nearRight = $petForm.Right -ge ($Area.Right - 32)
+        if (-not $nearLeft -and -not $nearRight) {
+            return $false
+        }
+        $petCenterX = $petForm.Left + [int]($petForm.Width / 2)
+        if ($nearLeft -and (-not $nearRight -or $petCenterX -le ($Area.Left + [int]($Area.Width / 2)))) {
+            Set-DragImage -Direction 'left'
+            $petForm.Left = $Area.Left
+            $script:AttachedEdge = 'left'
+        } else {
+            Set-DragImage -Direction 'right'
+            $petForm.Left = $Area.Right - $petForm.Width
+            $script:AttachedEdge = 'right'
+        }
+        $petForm.Top = [Math]::Max($Area.Top, [Math]::Min($petForm.Top, $Area.Bottom - $petForm.Height))
+        Move-Bubble
+        return $true
     }
 
     function Set-Character {
         param([ValidateSet('star', 'lishen')][string]$Character)
         $script:CurrentCharacter = $Character
+        $script:AttachedEdge = $null
+        $script:DragDirection = $null
         if ($Character -eq 'star') {
             $script:CurrentCharacterName = '星星'
             $animationTimer.Stop()
@@ -276,9 +339,6 @@ public static class NativeIconMethods {
             $animationTimer.Start()
         }
         $tray.Text = "$($script:CurrentCharacterName)桌宠"
-        if ($null -ne (Get-Variable sayItem -ValueOnly -ErrorAction SilentlyContinue)) {
-            $sayItem.Text = "让$($script:CurrentCharacterName)说句话"
-        }
         if ($null -ne (Get-Variable starItem -ValueOnly -ErrorAction SilentlyContinue)) {
             $starItem.Checked = $Character -eq 'star'
             $lishenItem.Checked = $Character -eq 'lishen'
@@ -326,7 +386,7 @@ public static class NativeIconMethods {
     $lishenItem = $characterMenu.DropDownItems.Add('黎深')
     [void]$menu.Items.Add($characterMenu)
     [void]$menu.Items.Add('-')
-    $sayItem = $menu.Items.Add('让星星说句话')
+    $sayItem = $menu.Items.Add('让角色说句话')
     $toggleItem = $menu.Items.Add('显示 / 隐藏桌宠')
     $reminderItem = $menu.Items.Add('暂停提醒')
     [void]$menu.Items.Add('-')
@@ -334,6 +394,7 @@ public static class NativeIconMethods {
     $tray.ContextMenuStrip = $menu
     $picture.ContextMenuStrip = $menu
     $script:RemindersOn = $true
+    Write-RunLog ("功能菜单：{0}" -f $sayItem.Text)
     Write-RunLog ("托盘状态：Visible={0}; Menu={1}; PetMenu={2}" -f $tray.Visible, ($null -ne $tray.ContextMenuStrip), ($null -ne $picture.ContextMenuStrip))
 
     $starItem.Checked = $true
@@ -365,6 +426,9 @@ public static class NativeIconMethods {
 
     $script:Dragging = $false
     $script:Moved = $false
+    $script:DragDirection = $null
+    $script:AttachedEdge = $null
+    $script:LastCursorX = 0
     $script:DragOffset = New-Object System.Drawing.Point(0, 0)
     $picture.Add_MouseDown({
         param($sender, $eventArgs)
@@ -372,6 +436,7 @@ public static class NativeIconMethods {
             $script:Dragging = $true
             $script:Moved = $false
             $script:DragOffset = $eventArgs.Location
+            $script:LastCursorX = [System.Windows.Forms.Cursor]::Position.X
         }
     })
     $picture.Add_MouseMove({
@@ -383,8 +448,13 @@ public static class NativeIconMethods {
             )
             if ([Math]::Abs($next.X - $petForm.Left) + [Math]::Abs($next.Y - $petForm.Top) -gt 3) {
                 $script:Moved = $true
+                $script:AttachedEdge = $null
             }
             $petForm.Location = $next
+            if ($script:CurrentCharacter -eq 'star' -and $cursor.X -ne $script:LastCursorX) {
+                Set-DragImage -Direction $(if ($cursor.X -lt $script:LastCursorX) { 'left' } else { 'right' })
+                $script:LastCursorX = $cursor.X
+            }
             Move-Bubble
         }
     })
@@ -393,6 +463,13 @@ public static class NativeIconMethods {
         if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
             if (-not $script:Moved) {
                 Speak-Category 'poke'
+            } elseif ($script:CurrentCharacter -eq 'star') {
+                $snapped = Snap-PetToEdge -Area (Get-ScreenWorkingArea)
+                if (-not $snapped) {
+                    $script:AttachedEdge = $null
+                    Set-CharacterAction -Category 'idle'
+                    $script:DragDirection = $null
+                }
             }
             $script:Dragging = $false
         }
@@ -470,6 +547,17 @@ public static class NativeIconMethods {
     if ($IsSelfTest) {
         Set-Character -Character 'lishen'
         Set-Character -Character 'star'
+        $selfTestArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $petForm.Left = $selfTestArea.Left - [int]($petForm.Width / 2)
+        $leftSnapped = Snap-PetToEdge -Area $selfTestArea
+        $leftAttached = $leftSnapped -and $script:AttachedEdge -eq 'left' -and $petForm.Left -eq $selfTestArea.Left
+        $petForm.Left = $selfTestArea.Right - [int]($petForm.Width / 2)
+        $rightSnapped = Snap-PetToEdge -Area $selfTestArea
+        $rightAttached = $rightSnapped -and $script:AttachedEdge -eq 'right' -and $petForm.Right -eq $selfTestArea.Right
+        Write-RunLog ("贴边悬挂：Left={0}; Right={1}" -f $leftAttached, $rightAttached)
+        Set-CharacterAction -Category 'idle'
+        $hangingPreserved = $script:AttachedEdge -eq 'right' -and $picture.Image -eq $script:DragImages['right'] -and $petForm.Right -eq $selfTestArea.Right
+        Write-RunLog ("悬挂状态保持：{0}" -f $hangingPreserved)
         Write-RunLog '自检模式：3 秒后退出'
         $selfTestTimer = New-Object System.Windows.Forms.Timer
         $selfTestTimer.Interval = 3000
@@ -508,6 +596,11 @@ public static class NativeIconMethods {
     }
     if ($null -ne (Get-Variable StarImages -Scope Script -ValueOnly -ErrorAction SilentlyContinue)) {
         foreach ($image in $script:StarImages.Values) {
+            $image.Dispose()
+        }
+    }
+    if ($null -ne (Get-Variable DragImages -Scope Script -ValueOnly -ErrorAction SilentlyContinue)) {
+        foreach ($image in $script:DragImages.Values) {
             $image.Dispose()
         }
     }
