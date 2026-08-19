@@ -9,6 +9,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $AssetRoot = Join-Path $ProjectRoot 'assets'
 $FrameRoot = Join-Path $AssetRoot 'frames'
 $StarRoot = Join-Path $AssetRoot 'star'
+$ApplePath = Join-Path $AssetRoot 'apple.png'
 $LinesPath = Join-Path $ProjectRoot 'data\lines.json'
 $IsSelfTest = $SelfTest -or [bool]$env:LISHEN_SELFTEST
 $RunLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-$PID.log" } else { Join-Path $ProjectRoot 'run.log' }
@@ -19,6 +20,9 @@ $AngrySec = 12
 $ThrowTickMs = 16
 $ThrowPadPx = 180
 $FeedSec = 8
+$AppleSizePx = 86
+$AppleFeedRange = 110
+$AppleTimeoutSec = 20
 $ThrowSensitivityLevels = @(
     @{ Label = '高灵敏度'; Speed = 1100 }
     @{ Label = '标准'; Speed = 1450 }
@@ -158,6 +162,10 @@ public static class NativeIconMethods {
         $script:DragImages[$direction] = [System.Drawing.Image]::FromFile($path)
     }
     Write-RunLog '拖拽动作素材已独立加载'
+    if (-not (Test-Path -LiteralPath $ApplePath)) {
+        throw "缺少苹果素材：$ApplePath"
+    }
+    $script:AppleImage = [System.Drawing.Image]::FromFile($ApplePath)
 
     $petHeight = 170
     $petWidth = [Math]::Max(100, [int]($script:Frames[0].Width * $petHeight / $script:Frames[0].Height))
@@ -202,6 +210,27 @@ public static class NativeIconMethods {
     $bubbleLabel.ForeColor = [System.Drawing.Color]::FromArgb(64, 79, 97)
     $bubbleLabel.BackColor = $bubbleForm.BackColor
     $bubbleForm.Controls.Add($bubbleLabel)
+
+    Write-RunLog '创建苹果窗口'
+    $appleForm = New-Object System.Windows.Forms.Form
+    $appleForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+    $appleForm.ShowInTaskbar = $false
+    $appleForm.TopMost = $true
+    $appleForm.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+    $appleForm.BackColor = $transparentColor
+    $appleForm.TransparencyKey = $transparentColor
+    $appleForm.ClientSize = New-Object System.Drawing.Size($AppleSizePx, $AppleSizePx)
+
+    $applePicture = New-Object System.Windows.Forms.PictureBox
+    $applePicture.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $applePicture.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
+    $applePicture.BackColor = $transparentColor
+    $applePicture.Image = $script:AppleImage
+    $appleForm.Controls.Add($applePicture)
+    $appleForm.Hide()
+    $script:AppleDragging = $false
+    $script:AppleMoved = $false
+    $script:AppleDragOffset = New-Object System.Drawing.Point(0, 0)
 
     function Set-RoundedRegion {
         param([System.Windows.Forms.Form]$Form, [int]$Radius)
@@ -260,6 +289,95 @@ public static class NativeIconMethods {
         $bubbleTimer.Stop()
         $bubbleTimer.Start()
     }
+
+    $appleTimer = New-Object System.Windows.Forms.Timer
+    $appleTimer.Interval = $AppleTimeoutSec * 1000
+    $appleTimer.Add_Tick({
+        Hide-Apple
+    })
+
+    function Hide-Apple {
+        $appleTimer.Stop()
+        $script:AppleDragging = $false
+        $script:AppleMoved = $false
+        $appleForm.Hide()
+    }
+
+    function Show-Apple {
+        if ($script:CurrentCharacter -ne 'star' -or $script:PetState -ne 'normal' -or (Test-IsHanging)) {
+            return $false
+        }
+        $area = [System.Windows.Forms.Screen]::FromControl($petForm).WorkingArea
+        $appleX = [int]($petForm.Left + ($petForm.Width / 2) - ($appleForm.Width / 2) + (Get-Random -Minimum -18 -Maximum 19))
+        $appleY = [int]($petForm.Top - $appleForm.Height + 10)
+        $appleX = [Math]::Max($area.Left, [Math]::Min($appleX, $area.Right - $appleForm.Width))
+        $appleY = [Math]::Max($area.Top, [Math]::Min($appleY, $area.Bottom - $appleForm.Height))
+        $appleForm.Location = New-Object System.Drawing.Point($appleX, $appleY)
+        $appleForm.Show()
+        $appleForm.BringToFront()
+        $script:AppleDragging = $false
+        $script:AppleMoved = $false
+        $appleTimer.Stop()
+        $appleTimer.Start()
+        Show-Bubble -Text '苹果掉出来了，拖给我吧。'
+        Write-RunLog '掉出苹果'
+        return $true
+    }
+
+    function Feed-PetFromApple {
+        if (-not $appleForm.Visible -or -not $petForm.Visible) {
+            return $false
+        }
+        if (Test-IsHanging -or $script:PetState -in @('thrown', 'angry', 'feed')) {
+            return $false
+        }
+        $appleCenterX = $appleForm.Left + [int]($appleForm.Width / 2)
+        $appleCenterY = $appleForm.Top + [int]($appleForm.Height / 2)
+        $petCenterX = $petForm.Left + [int]($petForm.Width / 2)
+        $petCenterY = $petForm.Top + [int]($petForm.Height / 2)
+        if ([Math]::Abs($appleCenterX - $petCenterX) -gt $AppleFeedRange -or [Math]::Abs($appleCenterY - $petCenterY) -gt $AppleFeedRange) {
+            return $false
+        }
+        if (-not (Set-PetState -State 'feed' -Action 'feed' -Until (Get-Date).AddSeconds($FeedSec))) {
+            return $false
+        }
+        Hide-Apple
+        Speak-Category 'feed'
+        return $true
+    }
+
+    $applePicture.Add_MouseDown({
+        param($sender, $eventArgs)
+        if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            $script:LastInteraction = Get-Date
+            $script:AppleDragging = $true
+            $script:AppleMoved = $false
+            $script:AppleDragOffset = $eventArgs.Location
+        }
+    })
+    $applePicture.Add_MouseMove({
+        param($sender, $eventArgs)
+        if ($script:AppleDragging) {
+            $cursor = [System.Windows.Forms.Cursor]::Position
+            $next = New-Object System.Drawing.Point(
+                ($cursor.X - $script:AppleDragOffset.X),
+                ($cursor.Y - $script:AppleDragOffset.Y)
+            )
+            if ([Math]::Abs($next.X - $appleForm.Left) + [Math]::Abs($next.Y - $appleForm.Top) -gt 3) {
+                $script:AppleMoved = $true
+            }
+            $appleForm.Location = $next
+        }
+    })
+    $applePicture.Add_MouseUp({
+        param($sender, $eventArgs)
+        if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            if ($script:AppleMoved) {
+                [void](Feed-PetFromApple)
+            }
+            $script:AppleDragging = $false
+        }
+    })
 
     Write-RunLog '创建系统托盘'
     $tray = New-Object System.Windows.Forms.NotifyIcon
@@ -370,6 +488,9 @@ public static class NativeIconMethods {
         $script:StateUntil = $Until
         $script:LastInteraction = Get-Date
         Set-CharacterAction -Category $Action
+        if ($State -notin @('normal', 'feed')) {
+            Hide-Apple
+        }
         Update-StateMenu
         Write-RunLog "桌宠状态：$State"
         return $true
@@ -624,6 +745,7 @@ public static class NativeIconMethods {
         $script:ThrowMotion = $null
         $script:DragLastAt = $null
         $script:DragLastPos = $null
+        Hide-Apple
         [void](Set-PetState -State 'normal' -Action 'idle')
     }
 
@@ -652,14 +774,7 @@ public static class NativeIconMethods {
     }
 
     function Feed-Pet {
-        if (Test-IsHanging -or $script:PetState -in @('thrown', 'angry', 'feed')) {
-            return $false
-        }
-        if (-not (Set-PetState -State 'feed' -Action 'feed' -Until (Get-Date).AddSeconds($FeedSec))) {
-            return $false
-        }
-        Speak-Category 'feed'
-        return $true
+        return Show-Apple
     }
 
     function Set-DragImage {
@@ -744,6 +859,7 @@ public static class NativeIconMethods {
         $script:DragLastAt = $null
         $script:DragLastPos = $null
         Stop-ThrowTimers
+        Hide-Apple
         if ($Character -eq 'star') {
             $script:CurrentCharacterName = '星星'
             $animationTimer.Stop()
@@ -819,11 +935,11 @@ public static class NativeIconMethods {
     [void]$menu.Items.Add($characterMenu)
     [void]$menu.Items.Add('-')
     $sayItem = $menu.Items.Add('让角色说句话')
+    $feedItem = $menu.Items.Add('喂食苹果')
     $stateMenu = New-Object System.Windows.Forms.ToolStripMenuItem('状态：普通')
     $focusItem = $stateMenu.DropDownItems.Add('开始专注（25 分钟）')
     $completeItem = $stateMenu.DropDownItems.Add('完成一件事')
     $idleItem = $stateMenu.DropDownItems.Add('陪我发呆')
-    $feedItem = $stateMenu.DropDownItems.Add('喂食')
     [void]$stateMenu.DropDownItems.Add('-')
     $normalItem = $stateMenu.DropDownItems.Add('恢复普通状态')
     [void]$menu.Items.Add($stateMenu)
@@ -865,6 +981,7 @@ public static class NativeIconMethods {
     $starItem.Add_Click({ Set-Character -Character 'star' })
     $lishenItem.Add_Click({ Set-Character -Character 'lishen' })
     $sayItem.Add_Click({ Speak-Now })
+    $feedItem.Add_Click({ [void](Feed-Pet) })
     $focusItem.Add_Click({
         if (Set-PetState -State 'focus' -Action 'idle' -Until (Get-Date).AddMinutes(25)) {
             Show-Bubble -Text '开始专注。我会安静陪着你。'
@@ -878,11 +995,6 @@ public static class NativeIconMethods {
     $idleItem.Add_Click({
         if (Set-PetState -State 'idle' -Action 'idle') {
             Show-Bubble -Text '好，我们一起安静待一会儿。'
-        }
-    })
-    $feedItem.Add_Click({
-        if (Feed-Pet) {
-            Show-Bubble -Text '先吃点东西，再继续忙。'
         }
     })
     $normalItem.Add_Click({ Restore-NormalState })
@@ -1172,7 +1284,7 @@ public static class NativeIconMethods {
         Write-RunLog ("悬挂点击分类：{0}" -f (Get-ClickCategory))
         Write-RunLog ("拖拽点击分类：{0}" -f (Get-DragCategory))
         Write-RunLog ("重启入口自检：{0}" -f ($null -ne $restartItem -and (Test-Path -LiteralPath $restartLauncher)))
-        Write-RunLog ("状态入口：{0}" -f ($stateMenu.DropDownItems.Count -eq 6))
+        Write-RunLog ("状态入口：{0}" -f ($stateMenu.DropDownItems.Count -eq 5))
         Set-PetOpacity -Percent 80
         Set-PetOpacity -Percent 100
         Set-PetClickThrough -Enabled $true

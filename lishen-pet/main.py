@@ -28,6 +28,7 @@ APP_DIR   = os.path.dirname(os.path.abspath(__file__))
 ASSET_DIR = os.path.join(APP_DIR, "assets")
 FRAME_DIR = os.path.join(ASSET_DIR, "frames")
 STAR_DIR  = os.path.join(ASSET_DIR, "star")
+APPLE_FILE = os.path.join(ASSET_DIR, "apple.png")
 DATA_FILE = os.path.join(APP_DIR, "data", "lines.json")
 LOG_FILE  = os.path.join(APP_DIR, "error.log")
 DBG_FILE  = os.path.join(APP_DIR, "run.log")
@@ -59,6 +60,9 @@ ANGRY_SEC       = 12      # 回来后生气多久
 THROW_TICK_MS    = 16      # 甩飞动画刷新间隔
 THROW_PAD_PX     = 180     # 甩出屏幕外的余量
 FEED_SEC        = 8       # 喂食动作停留时间
+APPLE_SIZE_PX   = 86      # 苹果显示尺寸
+APPLE_FEED_RANGE = 110    # 苹果送到星星附近的判定范围
+APPLE_TIMEOUT_SEC = 20    # 苹果未送达的保留时间
 THROW_SENSITIVITY_LEVELS = [
     ("高灵敏度", 1100),
     ("标准", 1450),
@@ -230,6 +234,82 @@ class Bubble(QWidget):
         x = int(center_x - w / 2)
         y = int(top_y - h + self.MARGIN)   # 尾巴尖(距窗口底 MARGIN)落在 top_y
         self.move(max(0, x), max(0, y))
+
+
+# ----------------------------------------------------------------------------
+# 苹果：喂食用的可拖动小物件
+# ----------------------------------------------------------------------------
+class Apple(QWidget):
+    def __init__(self, controller):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.controller = controller
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._pixmap = QPixmap(APPLE_FILE)
+        if self._pixmap.isNull():
+            log_err(f"缺少苹果素材: {APPLE_FILE}")
+        else:
+            self._pixmap = self._pixmap.scaled(APPLE_SIZE_PX, APPLE_SIZE_PX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        size = self._pixmap.size() if not self._pixmap.isNull() else QSize(APPLE_SIZE_PX, APPLE_SIZE_PX)
+        self.resize(size)
+        self._drag_pos = None
+        self._moved = False
+        self._life = QTimer(self)
+        self._life.setSingleShot(True)
+        self._life.timeout.connect(self.hide_apple)
+        self.hide()
+
+    def paintEvent(self, _):
+        try:
+            if self._pixmap.isNull():
+                return
+            p = QPainter(self)
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.drawPixmap(self.rect(), self._pixmap)
+        except Exception:
+            log_err("苹果绘制")
+
+    def drop_from_pet(self, pet):
+        if pet is None:
+            return
+        screen = QApplication.screenAt(pet.mapToGlobal(pet.rect().center())) or QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        x = int(pet.x() + pet.width() * 0.5 - self.width() * 0.5 + random.randint(-22, 22))
+        y = int(pet.y() - self.height() + 10)
+        x = max(area.left(), min(x, area.right() - self.width()))
+        y = max(area.top(), min(y, area.bottom() - self.height()))
+        self.move(x, y)
+        self._drag_pos = None
+        self._moved = False
+        self._life.stop()
+        self.show()
+        self.raise_()
+        self._life.start(APPLE_TIMEOUT_SEC * 1000)
+
+    def hide_apple(self):
+        self._life.stop()
+        self._drag_pos = None
+        self._moved = False
+        self.hide()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.controller.mark_interaction()
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._moved = False
+
+    def mouseMoveEvent(self, e):
+        if self._drag_pos is not None and (e.buttons() & Qt.LeftButton):
+            new = e.globalPosition().toPoint() - self._drag_pos
+            if (new - self.pos()).manhattanLength() > 3:
+                self._moved = True
+            self.move(new)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            if self._moved:
+                self.controller.feed_from_apple(self)
+            self._drag_pos = None
 
 
 # ----------------------------------------------------------------------------
@@ -521,6 +601,7 @@ class Controller:
         self.bubble = Bubble()
         dbg("Controller: 创建桌宠")
         self.pet = Pet(self.lines, self.bubble, self.mark_interaction, self.celebrate_clicks, self.throw_pet)
+        self.apple = Apple(self)
         self.character = "star"
         self.character_name = "星星"
         self.pet.set_character(self.character)
@@ -543,6 +624,8 @@ class Controller:
         menu = QMenu()
         self.act_say = QAction("让角色说句话", app)
         self.act_say.triggered.connect(self.say_now)
+        self.act_feed = QAction("喂食苹果", app)
+        self.act_feed.triggered.connect(self.drop_apple)
         act_toggle = QAction("显示 / 隐藏桌宠", app)
         act_toggle.triggered.connect(self.toggle_pet)
         self.act_rem = QAction("暂停提醒", app)
@@ -554,14 +637,11 @@ class Controller:
         act_complete.triggered.connect(self.complete_task)
         act_idle = QAction("陪我发呆", app)
         act_idle.triggered.connect(self.idle_together)
-        self.act_feed = QAction("喂食", app)
-        self.act_feed.triggered.connect(self.feed_pet)
         act_normal = QAction("恢复普通状态", app)
         act_normal.triggered.connect(self.restore_normal)
         self.state_menu.addAction(act_focus)
         self.state_menu.addAction(act_complete)
         self.state_menu.addAction(act_idle)
-        self.state_menu.addAction(self.act_feed)
         self.state_menu.addSeparator()
         self.state_menu.addAction(act_normal)
         opacity_menu = QMenu("透明度", menu)
@@ -599,6 +679,7 @@ class Controller:
         menu.addMenu(character_menu)
         menu.addSeparator()
         menu.addAction(self.act_say)
+        menu.addAction(self.act_feed)
         menu.addMenu(self.state_menu)
         menu.addMenu(opacity_menu)
         menu.addMenu(throw_menu)
@@ -645,6 +726,7 @@ class Controller:
         self._drag_last_at = 0
         self.pet.set_state_action(None)
         self.pet.set_character(character)
+        self.hide_apple()
         self.act_feed.setEnabled(character == "star")
         self._throw_speed_menu.setEnabled(character == "star")
         if not self.pet.isVisible():
@@ -779,6 +861,8 @@ class Controller:
         self.last_interaction = time.time()
         self.pet.set_state_action(None if state == "normal" else action)
         self.pet.set_category_action(action)
+        if state not in ("normal", "feed"):
+            self.hide_apple()
         self.update_state_title()
         return True
 
@@ -790,6 +874,16 @@ class Controller:
         for value, action in self._throw_speed_actions.items():
             action.setChecked(value == speed_px)
         dbg(f"触发门槛：{speed_px}")
+
+    def hide_apple(self):
+        if self.apple is not None:
+            self.apple.hide_apple()
+
+    def drop_apple(self):
+        if self.character != "star" or self.pet_state != "normal" or self.pet.is_hanging():
+            return
+        self.apple.drop_from_pet(self.pet)
+        self.pet.say("苹果掉出来了，拖给我吧。")
 
     def throw_pet(self, direction, drag_start_pos, release_pos, speed):
         if self.pet.is_hanging() or self.pet_state in ("thrown", "angry", "feed"):
@@ -843,10 +937,24 @@ class Controller:
             self.pet.say("今天很有精神嘛。奖励一段舞。")
 
     def feed_pet(self):
-        if self.pet.is_hanging() or self.pet_state in ("thrown", "angry", "feed"):
-            return
+        self.drop_apple()
+
+    def feed_from_apple(self, apple):
+        if apple is None or self.pet.is_hanging() or self.pet_state in ("thrown", "angry", "feed"):
+            return False
+        if not apple.isVisible():
+            return False
+        apple_center_x = apple.x() + apple.width() / 2
+        apple_center_y = apple.y() + apple.height() / 2
+        pet_center_x = self.pet.x() + self.pet.width() / 2
+        pet_center_y = self.pet.y() + self.pet.height() / 2
+        if abs(apple_center_x - pet_center_x) > APPLE_FEED_RANGE or abs(apple_center_y - pet_center_y) > APPLE_FEED_RANGE:
+            return False
         if self.set_pet_state("feed", "feed", FEED_SEC):
+            apple.hide_apple()
             self.pet.say_category("feed")
+            return True
+        return False
 
     def idle_together(self):
         if self.set_pet_state("idle", "idle"):
@@ -858,6 +966,7 @@ class Controller:
         self.throw_timer.stop()
         self._drag_last_pos = None
         self._drag_last_at = 0
+        self.hide_apple()
         self.set_pet_state("normal", "idle")
 
     def set_opacity(self, percent):
@@ -927,6 +1036,7 @@ class Controller:
         self.pet.setVisible(show)
         if not show:                 # 隐藏桌宠时，气泡也一起收起
             self.bubble.hide()
+            self.hide_apple()
 
     def toggle_reminders(self):
         self.reminders_on = not self.reminders_on
