@@ -1,6 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $nativeScript = Join-Path $PSScriptRoot 'native-pet.ps1'
+$launcher = Join-Path $PSScriptRoot 'launch-native.vbs'
 
 try {
     $startup = [Environment]::GetFolderPath('Startup')
@@ -10,19 +11,20 @@ try {
     if (-not (Test-Path -LiteralPath $nativeScript)) {
         throw "缺少 Windows 原生启动脚本：$nativeScript"
     }
+    if (-not (Test-Path -LiteralPath $launcher)) {
+        throw "缺少 Windows 无窗口启动器：$launcher"
+    }
 
-    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
     $shortcutPath = Join-Path $startup '黎深桌宠.lnk'
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $powershell
-    $shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $nativeScript + '"'
+    $shortcut.TargetPath = $wscript
+    $shortcut.Arguments = '"' + $launcher + '"'
     $shortcut.WorkingDirectory = $ProjectRoot
     $shortcut.Save()
 
-    Start-Process -FilePath $powershell -ArgumentList @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $nativeScript + '"')
-    ) -WorkingDirectory $ProjectRoot
+    Start-Process -FilePath $wscript -ArgumentList ('"' + $launcher + '"') -WorkingDirectory $ProjectRoot
     Write-Host "已设置无 Python 开机自启：$shortcutPath"
 } catch {
     Write-Host "设置开机自启失败：$($_.Exception.Message)" -ForegroundColor Red

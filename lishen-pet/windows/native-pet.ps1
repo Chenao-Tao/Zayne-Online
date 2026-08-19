@@ -10,8 +10,9 @@ $AssetRoot = Join-Path $ProjectRoot 'assets'
 $FrameRoot = Join-Path $AssetRoot 'frames'
 $StarRoot = Join-Path $AssetRoot 'star'
 $LinesPath = Join-Path $ProjectRoot 'data\lines.json'
-$RunLog = Join-Path $ProjectRoot 'run.log'
-$ErrorLog = Join-Path $ProjectRoot 'error.log'
+$IsSelfTest = $SelfTest -or [bool]$env:LISHEN_SELFTEST
+$RunLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-$PID.log" } else { Join-Path $ProjectRoot 'run.log' }
+$ErrorLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-error-$PID.log" } else { Join-Path $ProjectRoot 'error.log' }
 
 function Write-RunLog {
     param([string]$Message)
@@ -31,7 +32,18 @@ try {
     Write-RunLog '加载 WinForms'
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    if (-not ('NativeIconMethods' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativeIconMethods {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool DestroyIcon(IntPtr handle);
+}
+'@
+    }
     [System.Windows.Forms.Application]::EnableVisualStyles()
+    Write-RunLog ("线程单元：{0}" -f [System.Threading.Thread]::CurrentThread.ApartmentState)
 
     Write-RunLog '读取台词库'
     $lineData = Get-Content -LiteralPath $LinesPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -202,7 +214,18 @@ try {
 
     Write-RunLog '创建系统托盘'
     $tray = New-Object System.Windows.Forms.NotifyIcon
-    $tray.Icon = [System.Drawing.SystemIcons]::Information
+    $trayIconPath = Join-Path $AssetRoot 'icon_256.png'
+    if (Test-Path -LiteralPath $trayIconPath) {
+        $trayBitmap = New-Object System.Drawing.Bitmap $trayIconPath
+        $trayHandle = $trayBitmap.GetHicon()
+        $temporaryIcon = [System.Drawing.Icon]::FromHandle($trayHandle)
+        $tray.Icon = $temporaryIcon.Clone()
+        $temporaryIcon.Dispose()
+        [void][NativeIconMethods]::DestroyIcon($trayHandle)
+        $trayBitmap.Dispose()
+    } else {
+        $tray.Icon = [System.Drawing.SystemIcons]::Information
+    }
     $tray.Text = '星星桌宠'
     $tray.Visible = $true
 
@@ -309,7 +332,9 @@ try {
     [void]$menu.Items.Add('-')
     $quitItem = $menu.Items.Add('退出')
     $tray.ContextMenuStrip = $menu
+    $picture.ContextMenuStrip = $menu
     $script:RemindersOn = $true
+    Write-RunLog ("托盘状态：Visible={0}; Menu={1}; PetMenu={2}" -f $tray.Visible, ($null -ne $tray.ContextMenuStrip), ($null -ne $picture.ContextMenuStrip))
 
     $starItem.Checked = $true
     $starItem.Add_Click({ Set-Character -Character 'star' })
@@ -442,7 +467,7 @@ try {
     $petForm.Show()
     $greetingTimer.Start()
 
-    if ($SelfTest -or $env:LISHEN_SELFTEST) {
+    if ($IsSelfTest) {
         Set-Character -Character 'lishen'
         Set-Character -Character 'star'
         Write-RunLog '自检模式：3 秒后退出'
@@ -465,6 +490,9 @@ try {
 } finally {
     if ($null -ne (Get-Variable tray -ValueOnly -ErrorAction SilentlyContinue)) {
         $tray.Visible = $false
+        if ($null -ne $tray.Icon) {
+            $tray.Icon.Dispose()
+        }
         $tray.Dispose()
     }
     if ($null -ne (Get-Variable bubbleForm -ValueOnly -ErrorAction SilentlyContinue)) {
