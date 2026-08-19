@@ -13,7 +13,7 @@ $LinesPath = Join-Path $ProjectRoot 'data\lines.json'
 $IsSelfTest = $SelfTest -or [bool]$env:LISHEN_SELFTEST
 $RunLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-$PID.log" } else { Join-Path $ProjectRoot 'run.log' }
 $ErrorLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-error-$PID.log" } else { Join-Path $ProjectRoot 'error.log' }
-$ThrowSpeedPx = 1300
+$ThrowSpeedPx = 1450
 $ThrowWaitSec = 4
 $AngrySec = 12
 $ThrowTickMs = 16
@@ -286,6 +286,8 @@ public static class NativeIconMethods {
     $script:AngryTimer = $null
     $script:DragStartAt = $null
     $script:DragStartPos = $null
+    $script:DragLastAt = $null
+    $script:DragLastPos = $null
 
     function Resize-PetForImage {
         param([System.Drawing.Image]$Image)
@@ -374,12 +376,12 @@ public static class NativeIconMethods {
 
     function Get-ThrowEaseOut {
         param([double]$Value)
-        return 1.0 - [Math]::Pow(1.0 - $Value, 3)
+        return 1.0 - [Math]::Pow(1.0 - $Value, 2)
     }
 
     function Get-ThrowEaseIn {
         param([double]$Value)
-        return [Math]::Pow($Value, 3)
+        return [Math]::Pow($Value, 2)
     }
 
     function Get-CubicPoint {
@@ -425,17 +427,17 @@ public static class NativeIconMethods {
         $deltaX = [double]($ReleasePos.X - $StartPos.X)
         $deltaY = [double]($ReleasePos.Y - $StartPos.Y)
         $dragLen = [Math]::Max([Math]::Sqrt(($deltaX * $deltaX) + ($deltaY * $deltaY)), 1.0)
-        $force = Clamp-Number -Value (($Speed - $ThrowSpeedPx) / 1600.0) -Min 0.0 -Max 1.0
-        $exitPad = $ThrowPadPx + [Math]::Min(160, 40 + ($dragLen * 0.08) + ($force * 120))
+        $force = Clamp-Number -Value (($Speed - $ThrowSpeedPx) / 1800.0) -Min 0.0 -Max 1.0
+        $exitPad = $ThrowPadPx + [Math]::Min(130, 30 + ($dragLen * 0.06) + ($force * 90))
         $targetX = if ($Direction -eq 'left') { $area.Left - $petForm.Width - $exitPad } else { $area.Right + $petForm.Width + $exitPad }
-        $targetY = Clamp-Number -Value ($startCenter[1] + ($deltaY * 0.42) - ($force * 50)) -Min ($area.Top + ($petForm.Height / 2)) -Max ($area.Bottom - ($petForm.Height / 2))
-        $arc = 84 + ($force * 120) + [Math]::Min(72, $dragLen * 0.09)
+        $targetY = Clamp-Number -Value ($startCenter[1] + ($deltaY * 0.36) - ($force * 35)) -Min ($area.Top + ($petForm.Height / 2)) -Max ($area.Bottom - ($petForm.Height / 2))
+        $arc = 70 + ($force * 95) + [Math]::Min(64, $dragLen * 0.07)
         $dx = $targetX - $startCenter[0]
         $p0 = @($startCenter[0], $startCenter[1])
         $p3 = @($targetX, $targetY)
-        $p1 = @(($startCenter[0] + ($dx * 0.30)), ($startCenter[1] - $arc))
-        $p2 = @(($startCenter[0] + ($dx * 0.74)), ($targetY - ($arc * 0.52)))
-        $launchMs = [int](Clamp-Number -Value (420 - ($force * 160) - ([Math]::Min(110, $dragLen * 0.06))) -Min 220 -Max 420)
+        $p1 = @(($startCenter[0] + ($dx * 0.26)), ($startCenter[1] - $arc))
+        $p2 = @(($startCenter[0] + ($dx * 0.72)), ($targetY - ($arc * 0.48)))
+        $launchMs = [int](Clamp-Number -Value (560 - ($force * 150) - ([Math]::Min(120, $dragLen * 0.05))) -Min 300 -Max 560)
         return @{
             Origin = @([double]$origin.X, [double]$origin.Y)
             StartCenter = $p0
@@ -443,7 +445,7 @@ public static class NativeIconMethods {
             Control1 = $p1
             Control2 = $p2
             LaunchMs = $launchMs
-            ReturnMs = [Math]::Max(($launchMs + 80), [int]($launchMs * 1.18))
+            ReturnMs = [Math]::Max(($launchMs + 120), [int]($launchMs * 1.22))
             WaitUntil = (Get-Date).AddSeconds($ThrowWaitSec)
             Phase = 'launch'
             StartAt = Get-Date
@@ -599,6 +601,8 @@ public static class NativeIconMethods {
         Stop-ThrowTimers
         $script:ThrowOrigin = $null
         $script:ThrowMotion = $null
+        $script:DragLastAt = $null
+        $script:DragLastPos = $null
         [void](Set-PetState -State 'normal' -Action 'idle')
     }
 
@@ -702,6 +706,8 @@ public static class NativeIconMethods {
         $script:StateUntil = $null
         $script:ThrowOrigin = $null
         $script:ThrowMotion = $null
+        $script:DragLastAt = $null
+        $script:DragLastPos = $null
         Stop-ThrowTimers
         if ($Character -eq 'star') {
             $script:CurrentCharacterName = '星星'
@@ -887,6 +893,8 @@ public static class NativeIconMethods {
             $script:LastCursorX = [System.Windows.Forms.Cursor]::Position.X
             $script:DragStartAt = Get-Date
             $script:DragStartPos = [System.Windows.Forms.Cursor]::Position
+            $script:DragLastAt = $script:DragStartAt
+            $script:DragLastPos = $script:DragStartPos
         }
     })
     $picture.Add_MouseMove({
@@ -905,6 +913,8 @@ public static class NativeIconMethods {
                 Set-DragImage -Direction $(if ($cursor.X -lt $script:LastCursorX) { 'left' } else { 'right' })
                 $script:LastCursorX = $cursor.X
             }
+            $script:DragLastAt = Get-Date
+            $script:DragLastPos = $cursor
             Move-Bubble
         }
     })
@@ -926,6 +936,8 @@ public static class NativeIconMethods {
                     $script:ClickCount = 0
                     $script:DragStartAt = $null
                     $script:DragStartPos = $null
+                    $script:DragLastAt = $null
+                    $script:DragLastPos = $null
                     return
                 }
                 Speak-Category -Category (Get-ClickCategory)
@@ -933,14 +945,24 @@ public static class NativeIconMethods {
                 $releasePos = [System.Windows.Forms.Cursor]::Position
                 if ($null -ne $script:DragStartAt -and $null -ne $script:DragStartPos) {
                     $dragStartPos = $script:DragStartPos
-                    $elapsed = [Math]::Max(0.001, ((Get-Date) - $script:DragStartAt).TotalSeconds)
+                    $samplePos = if ($null -ne $script:DragLastPos) { $script:DragLastPos } else { $dragStartPos }
+                    $sampleAt = if ($null -ne $script:DragLastAt) { $script:DragLastAt } else { $script:DragStartAt }
+                    $elapsed = [Math]::Max(0.001, ((Get-Date) - $sampleAt).TotalSeconds)
                     $dx = $releasePos.X - $dragStartPos.X
                     $dy = $releasePos.Y - $dragStartPos.Y
-                    $speed = ([Math]::Abs($dx) + [Math]::Abs($dy)) / $elapsed
-                    if (-not (Test-IsHanging) -and $speed -ge $ThrowSpeedPx -and ([Math]::Abs($dx) -ge 120 -or [Math]::Abs($dy) -ge 120)) {
+                    $recentDx = $releasePos.X - $samplePos.X
+                    $recentDy = $releasePos.Y - $samplePos.Y
+                    $dragDistance = [Math]::Sqrt(($dx * $dx) + ($dy * $dy))
+                    $recentDistance = [Math]::Sqrt(($recentDx * $recentDx) + ($recentDy * $recentDy))
+                    $averageSpeed = $dragDistance / [Math]::Max(0.001, ((Get-Date) - $script:DragStartAt).TotalSeconds)
+                    $recentSpeed = $recentDistance / $elapsed
+                    $speed = [Math]::Max($recentSpeed, ($averageSpeed * 0.7))
+                    if (-not (Test-IsHanging) -and $speed -ge $ThrowSpeedPx -and $dragDistance -ge 160 -and $recentDistance -ge 40) {
                         $direction = if ($dx -lt 0) { 'left' } else { 'right' }
                         $script:DragStartAt = $null
                         $script:DragStartPos = $null
+                        $script:DragLastAt = $null
+                        $script:DragLastPos = $null
                         if (Throw-Pet -Direction $direction -StartPos $dragStartPos -ReleasePos $releasePos -Speed $speed) {
                             return
                         }

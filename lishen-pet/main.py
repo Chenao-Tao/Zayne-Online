@@ -53,7 +53,7 @@ NIGHT_MINUTE    = 30
 BUBBLE_SECONDS  = 8       # 气泡停留时间(秒)
 RECENT_MEMORY   = 5       # 每类最近多少条不重复
 NOTIFY_TOO      = False   # 除了气泡，是否同时发系统通知
-THROW_SPEED_PX  = 1300    # 快速甩飞的速度阈值(像素/秒)
+THROW_SPEED_PX  = 1450    # 快速甩飞的速度阈值(像素/秒)
 THROW_WAIT_SEC  = 4       # 甩飞后多久回来
 ANGRY_SEC       = 12      # 回来后生气多久
 THROW_TICK_MS    = 16      # 甩飞动画刷新间隔
@@ -249,6 +249,8 @@ class Pet(QWidget):
         self._last_click_at = 0
         self._drag_start_at = 0
         self._drag_start_pos = None
+        self._drag_last_at = 0
+        self._drag_last_pos = None
 
         self.frames = []
         for i in range(6):
@@ -273,6 +275,8 @@ class Pet(QWidget):
 
         self._drag_pos = None
         self._moved = False
+        self._drag_last_pos = None
+        self._drag_last_at = 0
 
     def _star_movie(self, filename):
         movie = self._star_movies.get(filename)
@@ -412,9 +416,11 @@ class Pet(QWidget):
                 self.on_interaction()
             self._drag_start_at = time.time()
             self._drag_start_pos = e.globalPosition().toPoint()
-            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            self._moved = False
-            self._last_global_x = e.globalPosition().toPoint().x()
+        self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        self._moved = False
+        self._last_global_x = e.globalPosition().toPoint().x()
+        self._drag_last_pos = self._drag_start_pos
+        self._drag_last_at = self._drag_start_at
 
     def mouseMoveEvent(self, e):
         if self._drag_pos is not None and (e.buttons() & Qt.LeftButton):
@@ -427,6 +433,8 @@ class Pet(QWidget):
             if self.character == "star" and global_x != self._last_global_x:
                 self._set_drag_action("left" if global_x < self._last_global_x else "right")
                 self._last_global_x = global_x
+            self._drag_last_pos = e.globalPosition().toPoint()
+            self._drag_last_at = time.time()
             # 气泡若正显示，跟着人一起走
             if self.bubble.isVisible():
                 self.bubble.reposition(self.x() + self.width() / 2,
@@ -444,6 +452,8 @@ class Pet(QWidget):
                     self._drag_pos = None
                     self._drag_start_pos = None
                     self._drag_start_at = 0
+                    self._drag_last_pos = None
+                    self._drag_last_at = 0
                     return
                 category = "hanging" if self.character == "star" and self._attached_edge else "poke"
                 self.say_category(category)
@@ -451,16 +461,26 @@ class Pet(QWidget):
                 release_pos = e.globalPosition().toPoint()
                 if self._drag_start_pos is not None and self._drag_start_at:
                     drag_start_pos = self._drag_start_pos
-                    elapsed = max(time.time() - self._drag_start_at, 0.001)
+                    sample_pos = self._drag_last_pos or drag_start_pos
+                    sample_at = self._drag_last_at or self._drag_start_at
+                    elapsed = max(time.time() - sample_at, 0.001)
                     dx = release_pos.x() - drag_start_pos.x()
                     dy = release_pos.y() - drag_start_pos.y()
-                    speed = (abs(dx) + abs(dy)) / elapsed
+                    recent_dx = release_pos.x() - sample_pos.x()
+                    recent_dy = release_pos.y() - sample_pos.y()
+                    drag_distance = math.hypot(dx, dy)
+                    recent_distance = math.hypot(recent_dx, recent_dy)
+                    average_speed = drag_distance / max(time.time() - self._drag_start_at, 0.001)
+                    recent_speed = recent_distance / elapsed
+                    speed = max(recent_speed, average_speed * 0.7)
                     if (self.on_throw and not self.is_hanging() and
-                            speed >= THROW_SPEED_PX and (abs(dx) >= 120 or abs(dy) >= 120)):
+                            speed >= THROW_SPEED_PX and drag_distance >= 160 and recent_distance >= 40):
                         direction = "left" if dx < 0 else "right"
                         self._drag_pos = None
                         self._drag_start_pos = None
                         self._drag_start_at = 0
+                        self._drag_last_pos = None
+                        self._drag_last_at = 0
                         if self.on_throw(direction, drag_start_pos, release_pos, speed):
                             return
                 drag_category = f"drag_{self._drag_direction}" if self._drag_direction in ("left", "right") else None
@@ -475,6 +495,8 @@ class Pet(QWidget):
             self._drag_pos = None
             self._drag_start_pos = None
             self._drag_start_at = 0
+            self._drag_last_pos = None
+            self._drag_last_at = 0
 
 
 # ----------------------------------------------------------------------------
@@ -594,6 +616,8 @@ class Controller:
         self.throw_origin = None
         self.throw_motion = None
         self.throw_timer.stop()
+        self._drag_last_pos = None
+        self._drag_last_at = 0
         self.pet.set_state_action(None)
         self.pet.set_character(character)
         if not self.pet.isVisible():
@@ -615,10 +639,10 @@ class Controller:
         return max(low, min(value, high))
 
     def _ease_out_cubic(self, t):
-        return 1 - pow(1 - t, 3)
+        return 1 - pow(1 - t, 2)
 
     def _ease_in_cubic(self, t):
-        return t * t * t
+        return t * t
 
     def _cubic_point(self, p0, p1, p2, p3, t):
         u = 1 - t
@@ -642,21 +666,21 @@ class Controller:
         delta_x = release_pos.x() - start_pos.x()
         delta_y = release_pos.y() - start_pos.y()
         drag_len = max(math.hypot(delta_x, delta_y), 1.0)
-        force = self._clamp((speed - THROW_SPEED_PX) / 1600.0, 0.0, 1.0)
-        exit_pad = THROW_PAD_PX + min(160, 40 + drag_len * 0.08 + force * 120)
+        force = self._clamp((speed - THROW_SPEED_PX) / 1800.0, 0.0, 1.0)
+        exit_pad = THROW_PAD_PX + min(130, 30 + drag_len * 0.06 + force * 90)
         target_x = (area.left() - width - exit_pad) if direction == "left" else (area.right() + width + exit_pad)
         target_y = self._clamp(
-            start_center[1] + delta_y * 0.42 - (force * 50),
+            start_center[1] + delta_y * 0.36 - (force * 35),
             area.top() + height / 2,
             area.bottom() - height / 2,
         )
-        arc = 84 + force * 120 + min(72, drag_len * 0.09)
+        arc = 70 + force * 95 + min(64, drag_len * 0.07)
         dx = target_x - start_center[0]
         p0 = start_center
         p3 = (target_x, target_y)
-        p1 = (start_center[0] + dx * 0.30, start_center[1] - arc)
-        p2 = (start_center[0] + dx * 0.74, target_y - arc * 0.52)
-        launch_ms = int(self._clamp(420 - force * 160 - min(110, drag_len * 0.06), 220, 420))
+        p1 = (start_center[0] + dx * 0.26, start_center[1] - arc)
+        p2 = (start_center[0] + dx * 0.72, target_y - arc * 0.48)
+        launch_ms = int(self._clamp(560 - force * 150 - min(120, drag_len * 0.05), 300, 560))
         return {
             "origin": origin,
             "start_center": start_center,
@@ -664,7 +688,7 @@ class Controller:
             "control1": p1,
             "control2": p2,
             "launch_ms": launch_ms,
-            "return_ms": max(launch_ms + 80, int(launch_ms * 1.18)),
+            "return_ms": max(launch_ms + 120, int(launch_ms * 1.22)),
             "wait_until": time.time() + THROW_WAIT_SEC,
             "start_at": time.time(),
             "phase": "launch",
@@ -765,6 +789,8 @@ class Controller:
         self.pet.say("哼，刚才那一下我记住了。")
         self.update_state_title()
         self.throw_origin = None
+        self._drag_last_pos = None
+        self._drag_last_at = 0
         QTimer.singleShot(ANGRY_SEC * 1000, lambda: self.pet_state == "angry" and self.restore_normal())
 
     def start_focus(self):
@@ -787,6 +813,8 @@ class Controller:
         self.throw_origin = None
         self.throw_motion = None
         self.throw_timer.stop()
+        self._drag_last_pos = None
+        self._drag_last_at = 0
         self.set_pet_state("normal", "idle")
 
     def set_opacity(self, percent):
