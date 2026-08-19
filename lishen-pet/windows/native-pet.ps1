@@ -16,6 +16,8 @@ $ErrorLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-error-$P
 $ThrowSpeedPx = 1300
 $ThrowWaitSec = 4
 $AngrySec = 12
+$ThrowTickMs = 16
+$ThrowPadPx = 180
 $script:NotifyToo = $false
 
 function Write-RunLog {
@@ -279,6 +281,7 @@ public static class NativeIconMethods {
     $script:LastClickAt = [datetime]::MinValue
     $script:ClickThrough = $false
     $script:ThrowOrigin = $null
+    $script:ThrowMotion = $null
     $script:ThrowTimer = $null
     $script:AngryTimer = $null
     $script:DragStartAt = $null
@@ -362,6 +365,142 @@ public static class NativeIconMethods {
         return $true
     }
 
+    function Clamp-Number {
+        param([double]$Value, [double]$Min, [double]$Max)
+        if ($Value -lt $Min) { return $Min }
+        if ($Value -gt $Max) { return $Max }
+        return $Value
+    }
+
+    function Get-ThrowEaseOut {
+        param([double]$Value)
+        return 1.0 - [Math]::Pow(1.0 - $Value, 3)
+    }
+
+    function Get-ThrowEaseIn {
+        param([double]$Value)
+        return [Math]::Pow($Value, 3)
+    }
+
+    function Get-CubicPoint {
+        param(
+            [double[]]$P0,
+            [double[]]$P1,
+            [double[]]$P2,
+            [double[]]$P3,
+            [double]$T
+        )
+        $u = 1.0 - $T
+        $uu = $u * $u
+        $tt = $T * $T
+        $uuu = $uu * $u
+        $ttt = $tt * $T
+        $x = ($uuu * $P0[0]) + (3 * $uu * $T * $P1[0]) + (3 * $u * $tt * $P2[0]) + ($ttt * $P3[0])
+        $y = ($uuu * $P0[1]) + (3 * $uu * $T * $P1[1]) + (3 * $u * $tt * $P2[1]) + ($ttt * $P3[1])
+        return ,@($x, $y)
+    }
+
+    function Set-PetCenter {
+        param([double[]]$Center)
+        $x = [int][Math]::Round($Center[0] - ($petForm.Width / 2))
+        $y = [int][Math]::Round($Center[1] - ($petForm.Height / 2))
+        $petForm.Location = New-Object System.Drawing.Point($x, $y)
+        Move-Bubble
+    }
+
+    function Build-ThrowMotion {
+        param(
+            [ValidateSet('left', 'right')][string]$Direction,
+            [System.Drawing.Point]$StartPos,
+            [System.Drawing.Point]$ReleasePos,
+            [double]$Speed
+        )
+        $screen = [System.Windows.Forms.Screen]::FromPoint($ReleasePos)
+        $area = $screen.WorkingArea
+        $origin = $petForm.Location
+        $startCenter = @(
+            [double]($origin.X + ($petForm.Width / 2)),
+            [double]($origin.Y + ($petForm.Height / 2))
+        )
+        $deltaX = [double]($ReleasePos.X - $StartPos.X)
+        $deltaY = [double]($ReleasePos.Y - $StartPos.Y)
+        $dragLen = [Math]::Max([Math]::Sqrt(($deltaX * $deltaX) + ($deltaY * $deltaY)), 1.0)
+        $force = Clamp-Number -Value (($Speed - $ThrowSpeedPx) / 1600.0) -Min 0.0 -Max 1.0
+        $exitPad = $ThrowPadPx + [Math]::Min(160, 40 + ($dragLen * 0.08) + ($force * 120))
+        $targetX = if ($Direction -eq 'left') { $area.Left - $petForm.Width - $exitPad } else { $area.Right + $petForm.Width + $exitPad }
+        $targetY = Clamp-Number -Value ($startCenter[1] + ($deltaY * 0.42) - ($force * 50)) -Min ($area.Top + ($petForm.Height / 2)) -Max ($area.Bottom - ($petForm.Height / 2))
+        $arc = 84 + ($force * 120) + [Math]::Min(72, $dragLen * 0.09)
+        $dx = $targetX - $startCenter[0]
+        $p0 = @($startCenter[0], $startCenter[1])
+        $p3 = @($targetX, $targetY)
+        $p1 = @(($startCenter[0] + ($dx * 0.30)), ($startCenter[1] - $arc))
+        $p2 = @(($startCenter[0] + ($dx * 0.74)), ($targetY - ($arc * 0.52)))
+        $launchMs = [int](Clamp-Number -Value (420 - ($force * 160) - ([Math]::Min(110, $dragLen * 0.06))) -Min 220 -Max 420)
+        return @{
+            Origin = @([double]$origin.X, [double]$origin.Y)
+            StartCenter = $p0
+            Target = $p3
+            Control1 = $p1
+            Control2 = $p2
+            LaunchMs = $launchMs
+            ReturnMs = [Math]::Max(($launchMs + 80), [int]($launchMs * 1.18))
+            WaitUntil = (Get-Date).AddSeconds($ThrowWaitSec)
+            Phase = 'launch'
+            StartAt = Get-Date
+        }
+    }
+
+    function Update-ThrowMotion {
+        if ($null -eq $script:ThrowMotion) {
+            if ($null -ne $script:ThrowTimer) {
+                $script:ThrowTimer.Stop()
+            }
+            return
+        }
+        $motion = $script:ThrowMotion
+        $now = Get-Date
+        switch ($motion.Phase) {
+            'launch' {
+                $elapsed = (($now - $motion.StartAt).TotalMilliseconds)
+                $linearT = [Math]::Max(0.0, [Math]::Min(1.0, ($elapsed / $motion.LaunchMs)))
+                $t = Get-ThrowEaseOut -Value $linearT
+                $point = Get-CubicPoint -P0 $motion.StartCenter -P1 $motion.Control1 -P2 $motion.Control2 -P3 $motion.Target -T $t
+                Set-PetCenter -Center $point
+                if ($linearT -ge 1.0) {
+                    $motion.Phase = 'wait'
+                    $motion.WaitUntil = (Get-Date).AddSeconds($ThrowWaitSec)
+                    $script:ThrowMotion = $motion
+                }
+            }
+            'wait' {
+                if ($now -lt $motion.WaitUntil) {
+                    return
+                }
+                $motion.Phase = 'return'
+                $motion.StartAt = Get-Date
+                $motion.ReturnStart = $motion.Target
+                $motion.ReturnControl1 = $motion.Control2
+                $motion.ReturnControl2 = $motion.Control1
+                $script:ThrowMotion = $motion
+                $petForm.Show()
+            }
+            'return' {
+                $elapsed = (($now - $motion.StartAt).TotalMilliseconds)
+                $linearT = [Math]::Max(0.0, [Math]::Min(1.0, ($elapsed / $motion.ReturnMs)))
+                $t = Get-ThrowEaseIn -Value $linearT
+                $point = Get-CubicPoint -P0 $motion.Target -P1 $motion.ReturnControl1 -P2 $motion.ReturnControl2 -P3 $motion.StartCenter -T $t
+                Set-PetCenter -Center $point
+                if ($linearT -ge 1.0) {
+                    $script:ThrowMotion = $null
+                    if ($null -ne $script:ThrowTimer) {
+                        $script:ThrowTimer.Stop()
+                    }
+                    Finish-ThrowReturn
+                }
+            }
+        }
+    }
+
     function Stop-ThrowTimers {
         foreach ($timerName in @('ThrowTimer', 'AngryTimer')) {
             $timer = Get-Variable -Name $timerName -Scope Script -ValueOnly -ErrorAction SilentlyContinue
@@ -373,14 +512,11 @@ public static class NativeIconMethods {
         }
     }
 
-    function Start-ThrowReturnTimer {
+    function Start-ThrowMotionTimer {
         Stop-ThrowTimers
         $script:ThrowTimer = New-Object System.Windows.Forms.Timer
-        $script:ThrowTimer.Interval = [Math]::Max(500, [int]($ThrowWaitSec * 1000))
-        $script:ThrowTimer.Add_Tick({
-            Stop-ThrowTimers
-            Finish-ThrowReturn
-        })
+        $script:ThrowTimer.Interval = $ThrowTickMs
+        $script:ThrowTimer.Add_Tick({ Update-ThrowMotion })
         $script:ThrowTimer.Start()
     }
 
@@ -398,26 +534,36 @@ public static class NativeIconMethods {
     }
 
     function Throw-Pet {
-        param([ValidateSet('left', 'right')][string]$Direction)
+        param(
+            [ValidateSet('left', 'right')][string]$Direction,
+            [System.Drawing.Point]$StartPos,
+            [System.Drawing.Point]$ReleasePos,
+            [double]$Speed
+        )
+        if ($null -eq $StartPos -or $null -eq $ReleasePos) {
+            return $false
+        }
         if (Test-IsHanging -or $script:PetState -in @('thrown', 'angry')) {
             return $false
         }
-        $script:ThrowOrigin = $petForm.Location
+        $script:ThrowOrigin = New-Object System.Drawing.Point($petForm.Left, $petForm.Top)
         $script:PetState = 'thrown'
         $script:StateAction = $null
         $script:StateUntil = (Get-Date).AddSeconds($ThrowWaitSec)
         $script:LastInteraction = Get-Date
         $script:ClickCount = 0
-        if ($Direction -eq 'left') {
-            $petForm.Left = [Math]::Max($petForm.Left - $petForm.Width, $petForm.Left - 240)
-        } else {
-            $petForm.Left = [Math]::Min($petForm.Left + $petForm.Width, $petForm.Left + 240)
-        }
-        $petForm.Hide()
+        $script:ThrowMotion = Build-ThrowMotion -Direction $Direction -StartPos $StartPos -ReleasePos $ReleasePos -Speed $Speed
+        $script:ThrowMotion.Origin = @([double]$script:ThrowOrigin.X, [double]$script:ThrowOrigin.Y)
+        $script:ThrowMotion.StartCenter = @(
+            [double]($script:ThrowOrigin.X + ($petForm.Width / 2)),
+            [double]($script:ThrowOrigin.Y + ($petForm.Height / 2))
+        )
         $bubbleForm.Hide()
         Update-StateMenu
         Write-RunLog ("甩飞：{0}" -f $Direction)
-        Start-ThrowReturnTimer
+        $petForm.Show()
+        $petForm.BringToFront()
+        Start-ThrowMotionTimer
         return $true
     }
 
@@ -428,12 +574,17 @@ public static class NativeIconMethods {
         if ($null -ne $script:ThrowOrigin) {
             $petForm.Location = $script:ThrowOrigin
         }
-        $petForm.Show()
+        if (-not $petForm.Visible) {
+            $petForm.Show()
+        }
         $script:PetState = 'angry'
         $script:StateAction = 'angry'
         $script:StateUntil = (Get-Date).AddSeconds($AngrySec)
         $script:LastInteraction = Get-Date
         Set-CharacterAction -Category 'angry'
+        if ($null -ne $script:ThrowOrigin) {
+            $petForm.Location = $script:ThrowOrigin
+        }
         Show-Bubble -Text '哼，刚才那一下我记住了。'
         Update-StateMenu
         Write-RunLog '甩飞后返回：生气中'
@@ -447,6 +598,7 @@ public static class NativeIconMethods {
         }
         Stop-ThrowTimers
         $script:ThrowOrigin = $null
+        $script:ThrowMotion = $null
         [void](Set-PetState -State 'normal' -Action 'idle')
     }
 
@@ -549,6 +701,7 @@ public static class NativeIconMethods {
         $script:StateAction = $null
         $script:StateUntil = $null
         $script:ThrowOrigin = $null
+        $script:ThrowMotion = $null
         Stop-ThrowTimers
         if ($Character -eq 'star') {
             $script:CurrentCharacterName = '星星'
@@ -779,15 +932,16 @@ public static class NativeIconMethods {
             } elseif ($script:CurrentCharacter -eq 'star') {
                 $releasePos = [System.Windows.Forms.Cursor]::Position
                 if ($null -ne $script:DragStartAt -and $null -ne $script:DragStartPos) {
+                    $dragStartPos = $script:DragStartPos
                     $elapsed = [Math]::Max(0.001, ((Get-Date) - $script:DragStartAt).TotalSeconds)
-                    $dx = $releasePos.X - $script:DragStartPos.X
-                    $dy = $releasePos.Y - $script:DragStartPos.Y
+                    $dx = $releasePos.X - $dragStartPos.X
+                    $dy = $releasePos.Y - $dragStartPos.Y
                     $speed = ([Math]::Abs($dx) + [Math]::Abs($dy)) / $elapsed
                     if (-not (Test-IsHanging) -and $speed -ge $ThrowSpeedPx -and ([Math]::Abs($dx) -ge 120 -or [Math]::Abs($dy) -ge 120)) {
                         $direction = if ($dx -lt 0) { 'left' } else { 'right' }
                         $script:DragStartAt = $null
                         $script:DragStartPos = $null
-                        if (Throw-Pet -Direction $direction) {
+                        if (Throw-Pet -Direction $direction -StartPos $dragStartPos -ReleasePos $releasePos -Speed $speed) {
                             return
                         }
                     }

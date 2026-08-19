@@ -10,7 +10,7 @@
 依赖：PySide6   ->  pip install PySide6
 """
 
-import sys, os, json, random, time, traceback
+import sys, os, json, random, time, traceback, math
 from collections import deque, defaultdict
 from datetime import datetime
 
@@ -56,6 +56,8 @@ NOTIFY_TOO      = False   # 除了气泡，是否同时发系统通知
 THROW_SPEED_PX  = 1300    # 快速甩飞的速度阈值(像素/秒)
 THROW_WAIT_SEC  = 4       # 甩飞后多久回来
 ANGRY_SEC       = 12      # 回来后生气多久
+THROW_TICK_MS    = 16      # 甩飞动画刷新间隔
+THROW_PAD_PX     = 180     # 甩出屏幕外的余量
 
 # 动画：帧序列 + 每帧时长(毫秒)。frame_0..5 对应六个表情。
 ANIM_SEQ   = [0, 0, 1, 3, 2, 4, 5, 0]
@@ -448,9 +450,10 @@ class Pet(QWidget):
             elif self.character == "star":
                 release_pos = e.globalPosition().toPoint()
                 if self._drag_start_pos is not None and self._drag_start_at:
+                    drag_start_pos = self._drag_start_pos
                     elapsed = max(time.time() - self._drag_start_at, 0.001)
-                    dx = release_pos.x() - self._drag_start_pos.x()
-                    dy = release_pos.y() - self._drag_start_pos.y()
+                    dx = release_pos.x() - drag_start_pos.x()
+                    dy = release_pos.y() - drag_start_pos.y()
                     speed = (abs(dx) + abs(dy)) / elapsed
                     if (self.on_throw and not self.is_hanging() and
                             speed >= THROW_SPEED_PX and (abs(dx) >= 120 or abs(dy) >= 120)):
@@ -458,7 +461,7 @@ class Pet(QWidget):
                         self._drag_pos = None
                         self._drag_start_pos = None
                         self._drag_start_at = 0
-                        if self.on_throw(direction):
+                        if self.on_throw(direction, drag_start_pos, release_pos, speed):
                             return
                 drag_category = f"drag_{self._drag_direction}" if self._drag_direction in ("left", "right") else None
                 snapped = self._snap_to_edge(release_pos)
@@ -497,6 +500,7 @@ class Controller:
         self.last_interaction = time.time()
         self.click_through = False
         self.throw_origin = None
+        self.throw_motion = None
 
         dbg("Controller: 创建托盘图标")
         icon_path = os.path.join(ASSET_DIR, "icon_256.png")
@@ -575,6 +579,9 @@ class Controller:
         self.state_timer = QTimer(app)
         self.state_timer.timeout.connect(self.update_state)
         self.state_timer.start(30_000)
+        self.throw_timer = QTimer(app)
+        self.throw_timer.setInterval(THROW_TICK_MS)
+        self.throw_timer.timeout.connect(self.update_throw_motion)
         dbg("Controller: 初始化完成")
 
     def set_character(self, character):
@@ -585,6 +592,8 @@ class Controller:
         self.pet_state = "normal"
         self.state_until = None
         self.throw_origin = None
+        self.throw_motion = None
+        self.throw_timer.stop()
         self.pet.set_state_action(None)
         self.pet.set_character(character)
         if not self.pet.isVisible():
@@ -601,6 +610,103 @@ class Controller:
 
     def mark_interaction(self):
         self.last_interaction = time.time()
+
+    def _clamp(self, value, low, high):
+        return max(low, min(value, high))
+
+    def _ease_out_cubic(self, t):
+        return 1 - pow(1 - t, 3)
+
+    def _ease_in_cubic(self, t):
+        return t * t * t
+
+    def _cubic_point(self, p0, p1, p2, p3, t):
+        u = 1 - t
+        uu = u * u
+        tt = t * t
+        uuu = uu * u
+        ttt = tt * t
+        x = (uuu * p0[0] + 3 * uu * t * p1[0] +
+             3 * u * tt * p2[0] + ttt * p3[0])
+        y = (uuu * p0[1] + 3 * uu * t * p1[1] +
+             3 * u * tt * p2[1] + ttt * p3[1])
+        return x, y
+
+    def _build_throw_motion(self, direction, start_pos, release_pos, speed):
+        screen = QApplication.screenAt(release_pos) or QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        origin = (float(self.pet.x()), float(self.pet.y()))
+        width = float(self.pet.width())
+        height = float(self.pet.height())
+        start_center = (origin[0] + width / 2, origin[1] + height / 2)
+        delta_x = release_pos.x() - start_pos.x()
+        delta_y = release_pos.y() - start_pos.y()
+        drag_len = max(math.hypot(delta_x, delta_y), 1.0)
+        force = self._clamp((speed - THROW_SPEED_PX) / 1600.0, 0.0, 1.0)
+        exit_pad = THROW_PAD_PX + min(160, 40 + drag_len * 0.08 + force * 120)
+        target_x = (area.left() - width - exit_pad) if direction == "left" else (area.right() + width + exit_pad)
+        target_y = self._clamp(
+            start_center[1] + delta_y * 0.42 - (force * 50),
+            area.top() + height / 2,
+            area.bottom() - height / 2,
+        )
+        arc = 84 + force * 120 + min(72, drag_len * 0.09)
+        dx = target_x - start_center[0]
+        p0 = start_center
+        p3 = (target_x, target_y)
+        p1 = (start_center[0] + dx * 0.30, start_center[1] - arc)
+        p2 = (start_center[0] + dx * 0.74, target_y - arc * 0.52)
+        launch_ms = int(self._clamp(420 - force * 160 - min(110, drag_len * 0.06), 220, 420))
+        return {
+            "origin": origin,
+            "start_center": start_center,
+            "target": p3,
+            "control1": p1,
+            "control2": p2,
+            "launch_ms": launch_ms,
+            "return_ms": max(launch_ms + 80, int(launch_ms * 1.18)),
+            "wait_until": time.time() + THROW_WAIT_SEC,
+            "start_at": time.time(),
+            "phase": "launch",
+            "force": force,
+        }
+
+    def update_throw_motion(self):
+        motion = self.throw_motion
+        if not motion:
+            self.throw_timer.stop()
+            return
+        now = time.time()
+        if motion["phase"] == "launch":
+            t = self._clamp((now - motion["start_at"]) * 1000 / motion["launch_ms"], 0.0, 1.0)
+            t = self._ease_out_cubic(t)
+            x, y = self._cubic_point(motion["start_center"], motion["control1"], motion["control2"], motion["target"], t)
+            self.pet.move(int(x - self.pet.width() / 2), int(y - self.pet.height() / 2))
+            if t >= 1.0:
+                motion["phase"] = "wait"
+                motion["wait_until"] = now + THROW_WAIT_SEC
+                self.throw_motion = motion
+            return
+        if motion["phase"] == "wait":
+            if now < motion["wait_until"]:
+                return
+            motion["phase"] = "return"
+            motion["start_at"] = now
+            motion["return_start"] = motion["target"]
+            motion["return_c1"] = motion["control2"]
+            motion["return_c2"] = motion["control1"]
+            self.throw_motion = motion
+            self.pet.show()
+            return
+        if motion["phase"] == "return":
+            t = self._clamp((now - motion["start_at"]) * 1000 / motion["return_ms"], 0.0, 1.0)
+            t = self._ease_in_cubic(t)
+            x, y = self._cubic_point(motion["target"], motion["return_c1"], motion["return_c2"], motion["start_center"], t)
+            self.pet.move(int(x - self.pet.width() / 2), int(y - self.pet.height() / 2))
+            if t >= 1.0:
+                self.throw_motion = None
+                self.throw_timer.stop()
+                self._finish_throw_return()
 
     def update_state_title(self):
         names = {
@@ -624,7 +730,7 @@ class Controller:
         self.update_state_title()
         return True
 
-    def throw_pet(self, direction):
+    def throw_pet(self, direction, drag_start_pos, release_pos, speed):
         if self.pet.is_hanging() or self.pet_state in ("thrown", "angry"):
             return False
         self.throw_origin = self.pet.pos()
@@ -632,12 +738,18 @@ class Controller:
         self.state_until = time.time() + THROW_WAIT_SEC
         self.last_interaction = time.time()
         self.pet.set_state_action(None)
-        self.pet.set_category_action("idle")
-        self.pet.hide()
+        self.pet.show()
+        self.pet.raise_()
         self.bubble.hide()
+        self.throw_motion = self._build_throw_motion(direction, drag_start_pos, release_pos, speed)
+        self.throw_motion["origin"] = (float(self.throw_origin.x()), float(self.throw_origin.y()))
+        self.throw_motion["start_center"] = (
+            float(self.throw_origin.x() + self.pet.width() / 2),
+            float(self.throw_origin.y() + self.pet.height() / 2),
+        )
         self.update_state_title()
         dbg(f"甩飞：{direction}")
-        QTimer.singleShot(THROW_WAIT_SEC * 1000, self._finish_throw_return)
+        self.throw_timer.start()
         return True
 
     def _finish_throw_return(self):
@@ -645,7 +757,6 @@ class Controller:
             return
         if self.throw_origin is not None:
             self.pet.move(self.throw_origin)
-        self.pet.show()
         self.pet_state = "angry"
         self.state_until = time.time() + ANGRY_SEC
         self.last_interaction = time.time()
@@ -674,6 +785,8 @@ class Controller:
 
     def restore_normal(self):
         self.throw_origin = None
+        self.throw_motion = None
+        self.throw_timer.stop()
         self.set_pet_state("normal", "idle")
 
     def set_opacity(self, percent):
@@ -689,7 +802,9 @@ class Controller:
         if self.pet.is_hanging():
             return
         now = time.time()
-        if self.pet_state in ("thrown", "angry"):
+        if self.pet_state == "thrown":
+            return
+        if self.pet_state == "angry":
             return
         if self.state_until and now >= self.state_until:
             if self.pet_state == "focus":
