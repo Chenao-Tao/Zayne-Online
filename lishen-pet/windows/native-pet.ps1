@@ -13,6 +13,9 @@ $LinesPath = Join-Path $ProjectRoot 'data\lines.json'
 $IsSelfTest = $SelfTest -or [bool]$env:LISHEN_SELFTEST
 $RunLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-$PID.log" } else { Join-Path $ProjectRoot 'run.log' }
 $ErrorLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-error-$PID.log" } else { Join-Path $ProjectRoot 'error.log' }
+$ThrowSpeedPx = 1300
+$ThrowWaitSec = 4
+$AngrySec = 12
 $script:NotifyToo = $false
 
 function Write-RunLog {
@@ -120,6 +123,7 @@ public static class NativeIconMethods {
         dinner = @('沈星回喵：饿了.gif', '沈星回喵：嚼嚼嚼.gif', '沈星回喵：吃撑了.gif')
         night = @('沈星回喵：打瞌睡.gif', '沈星回喵：躺平.gif')
         cheer = @('沈星回喵：热舞正面.gif', '沈星回喵：热舞转身.gif')
+        angry = @('沈星回喵：糟糕.gif')
         miss = @('沈星回喵：兔叽咪.gif', '沈星回喵：玩.gif')
         weather = @('沈星回喵：左摇摆.gif', '沈星回喵：右摇摆.gif')
     }
@@ -274,6 +278,11 @@ public static class NativeIconMethods {
     $script:ClickCount = 0
     $script:LastClickAt = [datetime]::MinValue
     $script:ClickThrough = $false
+    $script:ThrowOrigin = $null
+    $script:ThrowTimer = $null
+    $script:AngryTimer = $null
+    $script:DragStartAt = $null
+    $script:DragStartPos = $null
 
     function Resize-PetForImage {
         param([System.Drawing.Image]$Image)
@@ -324,6 +333,8 @@ public static class NativeIconMethods {
             focus = '专注中'
             idle = '陪你发呆'
             celebrate = '庆祝'
+            angry = '生气中'
+            thrown = '飞出去'
         }
         $name = $stateNames[$script:PetState]
         if ([string]::IsNullOrWhiteSpace($name)) {
@@ -334,11 +345,11 @@ public static class NativeIconMethods {
 
     function Set-PetState {
         param(
-            [ValidateSet('normal', 'focus', 'idle', 'celebrate')][string]$State,
+            [ValidateSet('normal', 'focus', 'idle', 'celebrate', 'angry', 'thrown')][string]$State,
             [string]$Action = 'idle',
             [Nullable[datetime]]$Until = $null
         )
-        if (Test-IsHanging) {
+        if (Test-IsHanging -or $script:PetState -eq 'thrown') {
             return $false
         }
         $script:PetState = $State
@@ -351,10 +362,91 @@ public static class NativeIconMethods {
         return $true
     }
 
+    function Stop-ThrowTimers {
+        foreach ($timerName in @('ThrowTimer', 'AngryTimer')) {
+            $timer = Get-Variable -Name $timerName -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+            if ($null -ne $timer) {
+                $timer.Stop()
+                $timer.Dispose()
+                Set-Variable -Scope Script -Name $timerName -Value $null
+            }
+        }
+    }
+
+    function Start-ThrowReturnTimer {
+        Stop-ThrowTimers
+        $script:ThrowTimer = New-Object System.Windows.Forms.Timer
+        $script:ThrowTimer.Interval = [Math]::Max(500, [int]($ThrowWaitSec * 1000))
+        $script:ThrowTimer.Add_Tick({
+            Stop-ThrowTimers
+            Finish-ThrowReturn
+        })
+        $script:ThrowTimer.Start()
+    }
+
+    function Start-AngryTimer {
+        Stop-ThrowTimers
+        $script:AngryTimer = New-Object System.Windows.Forms.Timer
+        $script:AngryTimer.Interval = [Math]::Max(500, [int]($AngrySec * 1000))
+        $script:AngryTimer.Add_Tick({
+            Stop-ThrowTimers
+            if ($script:PetState -eq 'angry') {
+                Restore-NormalState
+            }
+        })
+        $script:AngryTimer.Start()
+    }
+
+    function Throw-Pet {
+        param([ValidateSet('left', 'right')][string]$Direction)
+        if (Test-IsHanging -or $script:PetState -in @('thrown', 'angry')) {
+            return $false
+        }
+        $script:ThrowOrigin = $petForm.Location
+        $script:PetState = 'thrown'
+        $script:StateAction = $null
+        $script:StateUntil = (Get-Date).AddSeconds($ThrowWaitSec)
+        $script:LastInteraction = Get-Date
+        $script:ClickCount = 0
+        if ($Direction -eq 'left') {
+            $petForm.Left = [Math]::Max($petForm.Left - $petForm.Width, $petForm.Left - 240)
+        } else {
+            $petForm.Left = [Math]::Min($petForm.Left + $petForm.Width, $petForm.Left + 240)
+        }
+        $petForm.Hide()
+        $bubbleForm.Hide()
+        Update-StateMenu
+        Write-RunLog ("甩飞：{0}" -f $Direction)
+        Start-ThrowReturnTimer
+        return $true
+    }
+
+    function Finish-ThrowReturn {
+        if ($script:PetState -ne 'thrown') {
+            return
+        }
+        if ($null -ne $script:ThrowOrigin) {
+            $petForm.Location = $script:ThrowOrigin
+        }
+        $petForm.Show()
+        $script:PetState = 'angry'
+        $script:StateAction = 'angry'
+        $script:StateUntil = (Get-Date).AddSeconds($AngrySec)
+        $script:LastInteraction = Get-Date
+        Set-CharacterAction -Category 'angry'
+        Show-Bubble -Text '哼，刚才那一下我记住了。'
+        Update-StateMenu
+        Write-RunLog '甩飞后返回：生气中'
+        Start-AngryTimer
+        $script:ThrowOrigin = $null
+    }
+
     function Restore-NormalState {
         if (Test-IsHanging) {
             return
         }
+        Stop-ThrowTimers
+        $script:ThrowOrigin = $null
         [void](Set-PetState -State 'normal' -Action 'idle')
     }
 
@@ -426,6 +518,9 @@ public static class NativeIconMethods {
     }
 
     function Get-ClickCategory {
+        if ($script:PetState -eq 'angry') {
+            return 'angry'
+        }
         if ($script:CurrentCharacter -eq 'star' -and $script:AttachedEdge -in @('left', 'right')) {
             return 'hanging'
         }
@@ -453,6 +548,8 @@ public static class NativeIconMethods {
         $script:PetState = 'normal'
         $script:StateAction = $null
         $script:StateUntil = $null
+        $script:ThrowOrigin = $null
+        Stop-ThrowTimers
         if ($Character -eq 'star') {
             $script:CurrentCharacterName = '星星'
             $animationTimer.Stop()
@@ -479,6 +576,12 @@ public static class NativeIconMethods {
             [string]$Category,
             [switch]$Notify
         )
+        if ($script:PetState -eq 'thrown') {
+            return
+        }
+        if ($script:PetState -eq 'angry' -and $Category -ne 'angry') {
+            $Category = 'angry'
+        }
         $line = Get-RandomLine -Category $Category
         if ([string]::IsNullOrWhiteSpace($line)) {
             return
@@ -629,6 +732,8 @@ public static class NativeIconMethods {
             $script:Moved = $false
             $script:DragOffset = $eventArgs.Location
             $script:LastCursorX = [System.Windows.Forms.Cursor]::Position.X
+            $script:DragStartAt = Get-Date
+            $script:DragStartPos = [System.Windows.Forms.Cursor]::Position
         }
     })
     $picture.Add_MouseMove({
@@ -666,10 +771,27 @@ public static class NativeIconMethods {
                     [void](Set-PetState -State 'celebrate' -Action 'cheer' -Until $now.AddSeconds(10))
                     Show-Bubble -Text '今天很有精神嘛。奖励一段舞。'
                     $script:ClickCount = 0
+                    $script:DragStartAt = $null
+                    $script:DragStartPos = $null
                     return
                 }
                 Speak-Category -Category (Get-ClickCategory)
             } elseif ($script:CurrentCharacter -eq 'star') {
+                $releasePos = [System.Windows.Forms.Cursor]::Position
+                if ($null -ne $script:DragStartAt -and $null -ne $script:DragStartPos) {
+                    $elapsed = [Math]::Max(0.001, ((Get-Date) - $script:DragStartAt).TotalSeconds)
+                    $dx = $releasePos.X - $script:DragStartPos.X
+                    $dy = $releasePos.Y - $script:DragStartPos.Y
+                    $speed = ([Math]::Abs($dx) + [Math]::Abs($dy)) / $elapsed
+                    if (-not (Test-IsHanging) -and $speed -ge $ThrowSpeedPx -and ([Math]::Abs($dx) -ge 120 -or [Math]::Abs($dy) -ge 120)) {
+                        $direction = if ($dx -lt 0) { 'left' } else { 'right' }
+                        $script:DragStartAt = $null
+                        $script:DragStartPos = $null
+                        if (Throw-Pet -Direction $direction) {
+                            return
+                        }
+                    }
+                }
                 $dragCategory = Get-DragCategory
                 $snapped = Snap-PetToEdge -Area (Get-ScreenWorkingArea)
                 if (-not $snapped) {
@@ -750,6 +872,9 @@ public static class NativeIconMethods {
         if (Test-IsHanging) {
             return
         }
+        if ($script:PetState -in @('thrown', 'angry')) {
+            return
+        }
         $now = Get-Date
         if ($null -ne $script:StateUntil -and $now -ge $script:StateUntil) {
             if ($script:PetState -eq 'focus') {
@@ -816,6 +941,8 @@ public static class NativeIconMethods {
         Set-PetClickThrough -Enabled $false
         Write-RunLog ("显示控制：Opacity={0}; ClickThrough={1}" -f ([int]($petForm.Opacity * 100)), ($clickThroughEnabled -and -not $script:ClickThrough))
         Write-RunLog ("系统通知默认关闭：{0}" -f (-not $script:NotifyToo))
+        Write-RunLog ("生气台词库：{0}" -f (-not [string]::IsNullOrWhiteSpace((Get-RandomLine -Category 'angry'))))
+        Write-RunLog ("甩飞功能：{0}" -f ($null -ne (Get-Command Throw-Pet -CommandType Function -ErrorAction SilentlyContinue)))
         $script:AttachedEdge = $null
         $script:DragDirection = $null
         [void](Set-PetState -State 'focus' -Action 'idle' -Until (Get-Date).AddMinutes(25))

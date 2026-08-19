@@ -53,6 +53,9 @@ NIGHT_MINUTE    = 30
 BUBBLE_SECONDS  = 8       # 气泡停留时间(秒)
 RECENT_MEMORY   = 5       # 每类最近多少条不重复
 NOTIFY_TOO      = False   # 除了气泡，是否同时发系统通知
+THROW_SPEED_PX  = 1300    # 快速甩飞的速度阈值(像素/秒)
+THROW_WAIT_SEC  = 4       # 甩飞后多久回来
+ANGRY_SEC       = 12      # 回来后生气多久
 
 # 动画：帧序列 + 每帧时长(毫秒)。frame_0..5 对应六个表情。
 ANIM_SEQ   = [0, 0, 1, 3, 2, 4, 5, 0]
@@ -66,6 +69,7 @@ STAR_ACTIONS = {
     "dinner": ["沈星回喵：饿了.gif", "沈星回喵：嚼嚼嚼.gif", "沈星回喵：吃撑了.gif"],
     "night": ["沈星回喵：打瞌睡.gif", "沈星回喵：躺平.gif"],
     "cheer": ["沈星回喵：热舞正面.gif", "沈星回喵：热舞转身.gif"],
+    "angry": ["沈星回喵：糟糕.gif"],
     "miss": ["沈星回喵：兔叽咪.gif", "沈星回喵：玩.gif"],
     "weather": ["沈星回喵：左摇摆.gif", "沈星回喵：右摇摆.gif"],
 }
@@ -223,7 +227,7 @@ class Bubble(QWidget):
 # 桌宠窗口
 # ----------------------------------------------------------------------------
 class Pet(QWidget):
-    def __init__(self, lines, bubble, on_interaction=None, on_click_combo=None):
+    def __init__(self, lines, bubble, on_interaction=None, on_click_combo=None, on_throw=None):
         super().__init__(None,
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -231,6 +235,7 @@ class Pet(QWidget):
         self.bubble = bubble
         self.on_interaction = on_interaction
         self.on_click_combo = on_click_combo
+        self.on_throw = on_throw
         self.character = "lishen"
         self._movie = None
         self._star_movies = {}
@@ -240,6 +245,8 @@ class Pet(QWidget):
         self._last_global_x = 0
         self._click_count = 0
         self._last_click_at = 0
+        self._drag_start_at = 0
+        self._drag_start_pos = None
 
         self.frames = []
         for i in range(6):
@@ -334,6 +341,8 @@ class Pet(QWidget):
         self._attached_edge = None
         self._drag_direction = None
         self._state_action = None
+        self._drag_start_at = 0
+        self._drag_start_pos = None
         if character == "star":
             self.anim.stop()
             self._set_star_action("idle")
@@ -399,6 +408,8 @@ class Pet(QWidget):
         if e.button() == Qt.LeftButton:
             if self.on_interaction:
                 self.on_interaction()
+            self._drag_start_at = time.time()
+            self._drag_start_pos = e.globalPosition().toPoint()
             self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._moved = False
             self._last_global_x = e.globalPosition().toPoint().x()
@@ -429,12 +440,28 @@ class Pet(QWidget):
                     self._click_count = 0
                     self.on_click_combo()
                     self._drag_pos = None
+                    self._drag_start_pos = None
+                    self._drag_start_at = 0
                     return
                 category = "hanging" if self.character == "star" and self._attached_edge else "poke"
                 self.say_category(category)
             elif self.character == "star":
+                release_pos = e.globalPosition().toPoint()
+                if self._drag_start_pos is not None and self._drag_start_at:
+                    elapsed = max(time.time() - self._drag_start_at, 0.001)
+                    dx = release_pos.x() - self._drag_start_pos.x()
+                    dy = release_pos.y() - self._drag_start_pos.y()
+                    speed = (abs(dx) + abs(dy)) / elapsed
+                    if (self.on_throw and not self.is_hanging() and
+                            speed >= THROW_SPEED_PX and (abs(dx) >= 120 or abs(dy) >= 120)):
+                        direction = "left" if dx < 0 else "right"
+                        self._drag_pos = None
+                        self._drag_start_pos = None
+                        self._drag_start_at = 0
+                        if self.on_throw(direction):
+                            return
                 drag_category = f"drag_{self._drag_direction}" if self._drag_direction in ("left", "right") else None
-                snapped = self._snap_to_edge(e.globalPosition().toPoint())
+                snapped = self._snap_to_edge(release_pos)
                 if drag_category is None and self._drag_direction in ("left", "right"):
                     drag_category = f"drag_{self._drag_direction}"
                 if not snapped:
@@ -443,6 +470,8 @@ class Pet(QWidget):
                 if drag_category:
                     self.say_category(drag_category)
             self._drag_pos = None
+            self._drag_start_pos = None
+            self._drag_start_at = 0
 
 
 # ----------------------------------------------------------------------------
@@ -456,7 +485,7 @@ class Controller:
         dbg("Controller: 创建气泡")
         self.bubble = Bubble()
         dbg("Controller: 创建桌宠")
-        self.pet = Pet(self.lines, self.bubble, self.mark_interaction, self.celebrate_clicks)
+        self.pet = Pet(self.lines, self.bubble, self.mark_interaction, self.celebrate_clicks, self.throw_pet)
         self.character = "star"
         self.character_name = "星星"
         self.pet.set_character(self.character)
@@ -467,6 +496,7 @@ class Controller:
         self.state_until = None
         self.last_interaction = time.time()
         self.click_through = False
+        self.throw_origin = None
 
         dbg("Controller: 创建托盘图标")
         icon_path = os.path.join(ASSET_DIR, "icon_256.png")
@@ -554,8 +584,11 @@ class Controller:
         self.character_name = "星星" if character == "star" else "黎深"
         self.pet_state = "normal"
         self.state_until = None
+        self.throw_origin = None
         self.pet.set_state_action(None)
         self.pet.set_character(character)
+        if not self.pet.isVisible():
+            self.pet.show()
         self.tray.setToolTip(self.character_name)
         self.update_state_title()
         for key, action in self._character_actions.items():
@@ -570,11 +603,18 @@ class Controller:
         self.last_interaction = time.time()
 
     def update_state_title(self):
-        names = {"normal": "普通", "focus": "专注中", "idle": "陪你发呆", "celebrate": "庆祝"}
+        names = {
+            "normal": "普通",
+            "focus": "专注中",
+            "idle": "陪你发呆",
+            "celebrate": "庆祝",
+            "angry": "生气中",
+            "thrown": "飞出去",
+        }
         self.state_menu.setTitle(f"状态：{names.get(self.pet_state, self.pet_state)}")
 
     def set_pet_state(self, state, action="idle", seconds=None):
-        if self.pet.is_hanging():
+        if self.pet.is_hanging() or self.pet_state == "thrown":
             return False
         self.pet_state = state
         self.state_until = time.time() + seconds if seconds else None
@@ -583,6 +623,38 @@ class Controller:
         self.pet.set_category_action(action)
         self.update_state_title()
         return True
+
+    def throw_pet(self, direction):
+        if self.pet.is_hanging() or self.pet_state in ("thrown", "angry"):
+            return False
+        self.throw_origin = self.pet.pos()
+        self.pet_state = "thrown"
+        self.state_until = time.time() + THROW_WAIT_SEC
+        self.last_interaction = time.time()
+        self.pet.set_state_action(None)
+        self.pet.set_category_action("idle")
+        self.pet.hide()
+        self.bubble.hide()
+        self.update_state_title()
+        dbg(f"甩飞：{direction}")
+        QTimer.singleShot(THROW_WAIT_SEC * 1000, self._finish_throw_return)
+        return True
+
+    def _finish_throw_return(self):
+        if self.pet_state != "thrown":
+            return
+        if self.throw_origin is not None:
+            self.pet.move(self.throw_origin)
+        self.pet.show()
+        self.pet_state = "angry"
+        self.state_until = time.time() + ANGRY_SEC
+        self.last_interaction = time.time()
+        self.pet.set_state_action("angry")
+        self.pet.set_category_action("angry")
+        self.pet.say("哼，刚才那一下我记住了。")
+        self.update_state_title()
+        self.throw_origin = None
+        QTimer.singleShot(ANGRY_SEC * 1000, lambda: self.pet_state == "angry" and self.restore_normal())
 
     def start_focus(self):
         if self.set_pet_state("focus", "idle", 25 * 60):
@@ -601,6 +673,7 @@ class Controller:
             self.pet.say("好，我们一起安静待一会儿。")
 
     def restore_normal(self):
+        self.throw_origin = None
         self.set_pet_state("normal", "idle")
 
     def set_opacity(self, percent):
@@ -616,6 +689,8 @@ class Controller:
         if self.pet.is_hanging():
             return
         now = time.time()
+        if self.pet_state in ("thrown", "angry"):
+            return
         if self.state_until and now >= self.state_until:
             if self.pet_state == "focus":
                 if self.set_pet_state("celebrate", "cheer", 12):
@@ -644,8 +719,12 @@ class Controller:
 
     def say_now(self):
         try:
+            if self.pet_state == "thrown":
+                return
             h = datetime.now().hour
-            if h == LUNCH_HOUR: cat = "lunch"
+            if self.pet_state == "angry":
+                cat = "angry"
+            elif h == LUNCH_HOUR: cat = "lunch"
             elif h == DINNER_HOUR: cat = "dinner"
             elif h >= 23 or h < 6: cat = "night"
             else: cat = random.choice(["daily", "miss", "cheer"])
@@ -673,6 +752,10 @@ class Controller:
         return nxt + jitter
 
     def _speak(self, cat):
+        if self.pet_state == "thrown":
+            return
+        if self.pet_state == "angry":
+            cat = "angry"
         if not self.pet.isVisible():
             self.pet.show()
         self.pet.set_category_action(cat)
