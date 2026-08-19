@@ -40,6 +40,7 @@ try {
         [pscustomobject]@{ Name = '悬挂保持'; Pass = $content -match '悬挂状态保持：True' },
         [pscustomobject]@{ Name = '悬挂台词'; Pass = $content -match '悬挂台词库：True' -and $content -match '悬挂点击分类：hanging' },
         [pscustomobject]@{ Name = '拖拽台词'; Pass = $content -match '拖拽点击分类：drag_right' },
+        [pscustomobject]@{ Name = '重启入口'; Pass = $content -match '重启入口：Menu=True; Launcher=True' -and $content -match '重启入口自检：True' },
         [pscustomobject]@{ Name = '角色切换'; Pass = $content -match '切换角色：黎深' -and $content -match '切换角色：星星' },
         [pscustomobject]@{ Name = '消息循环退出'; Pass = $content -match 'Windows 原生版已退出' },
         [pscustomobject]@{ Name = '无新终端'; Pass = $newTerminals.Count -eq 0 }

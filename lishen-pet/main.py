@@ -14,7 +14,7 @@ import sys, os, json, random, time, traceback
 from collections import deque, defaultdict
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer, QRect, QRectF, QSize
+from PySide6.QtCore import Qt, QTimer, QRect, QRectF, QSize, QProcess
 from PySide6.QtGui import (QPixmap, QIcon, QAction, QPainter, QPainterPath,
                            QMovie,
                            QPen, QColor, QFont, QFontMetrics)
@@ -453,11 +453,14 @@ class Controller:
         character_menu.addAction(act_lishen)
         act_quit = QAction("退出", app)
         act_quit.triggered.connect(app.quit)
+        act_restart = QAction("重启桌宠", app)
+        act_restart.triggered.connect(self.restart)
         menu.addMenu(character_menu)
         menu.addSeparator()
         for a in (self.act_say, act_toggle, self.act_rem):
             menu.addAction(a)
         menu.addSeparator()
+        menu.addAction(act_restart)
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_click)
@@ -490,6 +493,17 @@ class Controller:
     def _tray_click(self, reason):
         if reason == QSystemTrayIcon.Trigger:
             self.say_now()
+
+    def restart(self):
+        try:
+            started = QProcess.startDetached(sys.executable, [os.path.abspath(__file__)], APP_DIR)
+            if isinstance(started, tuple):
+                started = started[0]
+            if not started:
+                raise RuntimeError("无法启动新的桌宠进程")
+            self.app.quit()
+        except Exception:
+            log_err("重启桌宠")
 
     def say_now(self):
         try:

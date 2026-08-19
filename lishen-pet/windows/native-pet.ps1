@@ -428,11 +428,15 @@ public static class NativeIconMethods {
     $toggleItem = $menu.Items.Add('显示 / 隐藏桌宠')
     $reminderItem = $menu.Items.Add('暂停提醒')
     [void]$menu.Items.Add('-')
+    $restartItem = $menu.Items.Add('重启桌宠')
     $quitItem = $menu.Items.Add('退出')
+    $restartLauncher = Join-Path $PSScriptRoot 'launch-native.vbs'
+    $restartWscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
     $tray.ContextMenuStrip = $menu
     $picture.ContextMenuStrip = $menu
     $script:RemindersOn = $true
     Write-RunLog ("功能菜单：{0}" -f $sayItem.Text)
+    Write-RunLog ("重启入口：Menu={0}; Launcher={1}" -f ($null -ne $restartItem), (Test-Path -LiteralPath $restartLauncher))
     Write-RunLog ("托盘状态：Visible={0}; Menu={1}; PetMenu={2}" -f $tray.Visible, ($null -ne $tray.ContextMenuStrip), ($null -ne $picture.ContextMenuStrip))
 
     $starItem.Checked = $true
@@ -450,6 +454,24 @@ public static class NativeIconMethods {
     $reminderItem.Add_Click({
         $script:RemindersOn = -not $script:RemindersOn
         $reminderItem.Text = if ($script:RemindersOn) { '暂停提醒' } else { '恢复提醒' }
+    })
+    $restartItem.Add_Click({
+        try {
+            if (-not (Test-Path -LiteralPath $restartLauncher)) {
+                throw "缺少无窗口启动器：$restartLauncher"
+            }
+            Start-Process -FilePath $restartWscript -ArgumentList ('"' + $restartLauncher + '"') -WorkingDirectory $ProjectRoot
+            $tray.Visible = $false
+            [System.Windows.Forms.Application]::Exit()
+        } catch {
+            Write-ErrorLog -Record $_
+            [System.Windows.Forms.MessageBox]::Show(
+                "重启失败：$($_.Exception.Message)",
+                '星星桌宠',
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            ) | Out-Null
+        }
     })
     $quitItem.Add_Click({
         $tray.Visible = $false
@@ -611,6 +633,7 @@ public static class NativeIconMethods {
         Write-RunLog ("悬挂台词库：{0}" -f (-not [string]::IsNullOrWhiteSpace($hangingLine)))
         Write-RunLog ("悬挂点击分类：{0}" -f (Get-ClickCategory))
         Write-RunLog ("拖拽点击分类：{0}" -f (Get-DragCategory))
+        Write-RunLog ("重启入口自检：{0}" -f ($null -ne $restartItem -and (Test-Path -LiteralPath $restartLauncher)))
         Write-RunLog '自检模式：3 秒后退出'
         $selfTestTimer = New-Object System.Windows.Forms.Timer
         $selfTestTimer.Interval = 3000
