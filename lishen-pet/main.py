@@ -400,9 +400,16 @@ class Pet(QWidget):
             if not self._moved:
                 category = "hanging" if self.character == "star" and self._attached_edge else "poke"
                 self.say_category(category)
-            elif self.character == "star" and not self._snap_to_edge(e.globalPosition().toPoint()):
-                self._attached_edge = None
-                self._set_star_action("idle")
+            elif self.character == "star":
+                drag_category = f"drag_{self._drag_direction}" if self._drag_direction in ("left", "right") else None
+                snapped = self._snap_to_edge(e.globalPosition().toPoint())
+                if drag_category is None and self._drag_direction in ("left", "right"):
+                    drag_category = f"drag_{self._drag_direction}"
+                if not snapped:
+                    self._attached_edge = None
+                    self._set_star_action("idle")
+                if drag_category:
+                    self.say_category(drag_category)
             self._drag_pos = None
 
 

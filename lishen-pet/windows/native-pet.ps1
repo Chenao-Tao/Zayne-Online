@@ -346,6 +346,19 @@ public static class NativeIconMethods {
         return 'poke'
     }
 
+    function Get-DragCategory {
+        if ($script:CurrentCharacter -ne 'star') {
+            return $null
+        }
+        if ($script:DragDirection -eq 'left') {
+            return 'drag_left'
+        }
+        if ($script:DragDirection -eq 'right') {
+            return 'drag_right'
+        }
+        return $null
+    }
+
     function Set-Character {
         param([ValidateSet('star', 'lishen')][string]$Character)
         $script:CurrentCharacter = $Character
@@ -486,17 +499,21 @@ public static class NativeIconMethods {
     $picture.Add_MouseUp({
         param($sender, $eventArgs)
         if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            $script:Dragging = $false
             if (-not $script:Moved) {
                 Speak-Category -Category (Get-ClickCategory)
             } elseif ($script:CurrentCharacter -eq 'star') {
+                $dragCategory = Get-DragCategory
                 $snapped = Snap-PetToEdge -Area (Get-ScreenWorkingArea)
                 if (-not $snapped) {
                     $script:AttachedEdge = $null
                     Set-CharacterAction -Category 'idle'
                     $script:DragDirection = $null
                 }
+                if ($null -ne $dragCategory) {
+                    Speak-Category -Category $dragCategory
+                }
             }
-            $script:Dragging = $false
         }
     })
 
@@ -593,6 +610,7 @@ public static class NativeIconMethods {
         $hangingLine = Get-RandomLine -Category 'hanging'
         Write-RunLog ("悬挂台词库：{0}" -f (-not [string]::IsNullOrWhiteSpace($hangingLine)))
         Write-RunLog ("悬挂点击分类：{0}" -f (Get-ClickCategory))
+        Write-RunLog ("拖拽点击分类：{0}" -f (Get-DragCategory))
         Write-RunLog '自检模式：3 秒后退出'
         $selfTestTimer = New-Object System.Windows.Forms.Timer
         $selfTestTimer.Interval = 3000

@@ -89,7 +89,8 @@ Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按�
 
 **改台词** —— 编辑 `data/lines.json`。顶层 `categories` 是黎深台词；星星专属台词位于
 `characters.star.categories`。按分类（`greeting` / `daily` / `night` / `cheer` /
-`miss` / `weather` / `lunch` / `dinner` / `poke` / `hanging`）增删句子即可，改完重启生效。
+`miss` / `weather` / `lunch` / `dinner` / `poke` / `drag_left` / `drag_right` /
+`hanging`）增删句子即可，改完重启生效。
 
 星星拖到屏幕左右边缘后会保持拎喵悬挂动作；悬挂期间点击只从 `hanging` 分类取台词，不会切换到普通点击表情。
 
