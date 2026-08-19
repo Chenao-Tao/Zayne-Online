@@ -1,4 +1,6 @@
 lishen-pet/.venv/
+lishen-pet/__pycache__/
+lishen-pet/**/*.pyc
 lishen-pet/run.log
 lishen-pet/error.log
 lishen-pet/主程序测试输出.txt

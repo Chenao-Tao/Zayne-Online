@@ -223,18 +223,23 @@ class Bubble(QWidget):
 # 桌宠窗口
 # ----------------------------------------------------------------------------
 class Pet(QWidget):
-    def __init__(self, lines, bubble):
+    def __init__(self, lines, bubble, on_interaction=None, on_click_combo=None):
         super().__init__(None,
             Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.lines = lines
         self.bubble = bubble
+        self.on_interaction = on_interaction
+        self.on_click_combo = on_click_combo
         self.character = "lishen"
         self._movie = None
         self._star_movies = {}
         self._attached_edge = None
         self._drag_direction = None
+        self._state_action = None
         self._last_global_x = 0
+        self._click_count = 0
+        self._last_click_at = 0
 
         self.frames = []
         for i in range(6):
@@ -328,6 +333,7 @@ class Pet(QWidget):
         self.character = character
         self._attached_edge = None
         self._drag_direction = None
+        self._state_action = None
         if character == "star":
             self.anim.stop()
             self._set_star_action("idle")
@@ -345,7 +351,23 @@ class Pet(QWidget):
 
     def set_category_action(self, category):
         if self.character == "star" and self._attached_edge is None:
+            if self._state_action is not None and category != self._state_action:
+                return
             self._set_star_action(category)
+
+    def set_state_action(self, action):
+        self._state_action = action
+
+    def is_hanging(self):
+        return self.character == "star" and self._attached_edge in ("left", "right")
+
+    def set_click_through(self, enabled):
+        was_visible = self.isVisible()
+        position = self.pos()
+        self.setWindowFlag(Qt.WindowTransparentForInput, enabled)
+        if was_visible:
+            self.show()
+            self.move(position)
 
     def _set_frame(self, idx):
         if 0 <= idx < len(self.frames) and not self.frames[idx].isNull():
@@ -375,6 +397,8 @@ class Pet(QWidget):
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
+            if self.on_interaction:
+                self.on_interaction()
             self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._moved = False
             self._last_global_x = e.globalPosition().toPoint().x()
@@ -398,6 +422,14 @@ class Pet(QWidget):
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton:
             if not self._moved:
+                now = time.time()
+                self._click_count = self._click_count + 1 if now - self._last_click_at <= 4 else 1
+                self._last_click_at = now
+                if not self.is_hanging() and self._click_count >= 5 and self.on_click_combo:
+                    self._click_count = 0
+                    self.on_click_combo()
+                    self._drag_pos = None
+                    return
                 category = "hanging" if self.character == "star" and self._attached_edge else "poke"
                 self.say_category(category)
             elif self.character == "star":
@@ -407,7 +439,7 @@ class Pet(QWidget):
                     drag_category = f"drag_{self._drag_direction}"
                 if not snapped:
                     self._attached_edge = None
-                    self._set_star_action("idle")
+                    self._set_star_action(self._state_action or "idle")
                 if drag_category:
                     self.say_category(drag_category)
             self._drag_pos = None
@@ -424,13 +456,17 @@ class Controller:
         dbg("Controller: 创建气泡")
         self.bubble = Bubble()
         dbg("Controller: 创建桌宠")
-        self.pet = Pet(self.lines, self.bubble)
+        self.pet = Pet(self.lines, self.bubble, self.mark_interaction, self.celebrate_clicks)
         self.character = "star"
         self.character_name = "星星"
         self.pet.set_character(self.character)
         dbg("Controller: 显示桌宠")
         self.pet.show()
         self.reminders_on = True
+        self.pet_state = "normal"
+        self.state_until = None
+        self.last_interaction = time.time()
+        self.click_through = False
 
         dbg("Controller: 创建托盘图标")
         icon_path = os.path.join(ASSET_DIR, "icon_256.png")
@@ -444,6 +480,32 @@ class Controller:
         act_toggle.triggered.connect(self.toggle_pet)
         self.act_rem = QAction("暂停提醒", app)
         self.act_rem.triggered.connect(self.toggle_reminders)
+        self.state_menu = QMenu("状态：普通", menu)
+        act_focus = QAction("开始专注（25 分钟）", app)
+        act_focus.triggered.connect(self.start_focus)
+        act_complete = QAction("完成一件事", app)
+        act_complete.triggered.connect(self.complete_task)
+        act_idle = QAction("陪我发呆", app)
+        act_idle.triggered.connect(self.idle_together)
+        act_normal = QAction("恢复普通状态", app)
+        act_normal.triggered.connect(self.restore_normal)
+        self.state_menu.addAction(act_focus)
+        self.state_menu.addAction(act_complete)
+        self.state_menu.addAction(act_idle)
+        self.state_menu.addSeparator()
+        self.state_menu.addAction(act_normal)
+        opacity_menu = QMenu("透明度", menu)
+        self._opacity_actions = {}
+        for percent in (100, 80, 60, 40):
+            action = QAction(f"{percent}%", app)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked=False, value=percent: self.set_opacity(value))
+            opacity_menu.addAction(action)
+            self._opacity_actions[percent] = action
+        self._opacity_actions[100].setChecked(True)
+        self.act_click_through = QAction("鼠标穿透（从托盘关闭）", app)
+        self.act_click_through.setCheckable(True)
+        self.act_click_through.toggled.connect(self.set_click_through)
         character_menu = QMenu("切换角色", menu)
         act_star = QAction("星星（默认）", app)
         act_lishen = QAction("黎深", app)
@@ -457,7 +519,10 @@ class Controller:
         act_restart.triggered.connect(self.restart)
         menu.addMenu(character_menu)
         menu.addSeparator()
-        for a in (self.act_say, act_toggle, self.act_rem):
+        menu.addAction(self.act_say)
+        menu.addMenu(self.state_menu)
+        menu.addMenu(opacity_menu)
+        for a in (self.act_click_through, act_toggle, self.act_rem):
             menu.addAction(a)
         menu.addSeparator()
         menu.addAction(act_restart)
@@ -477,6 +542,9 @@ class Controller:
         self.sched = QTimer(app)
         self.sched.timeout.connect(self._tick)
         self.sched.start(30_000)
+        self.state_timer = QTimer(app)
+        self.state_timer.timeout.connect(self.update_state)
+        self.state_timer.start(30_000)
         dbg("Controller: 初始化完成")
 
     def set_character(self, character):
@@ -484,8 +552,12 @@ class Controller:
             return
         self.character = character
         self.character_name = "星星" if character == "star" else "黎深"
+        self.pet_state = "normal"
+        self.state_until = None
+        self.pet.set_state_action(None)
         self.pet.set_character(character)
         self.tray.setToolTip(self.character_name)
+        self.update_state_title()
         for key, action in self._character_actions.items():
             action.setCheckable(True)
             action.setChecked(key == character)
@@ -493,6 +565,71 @@ class Controller:
     def _tray_click(self, reason):
         if reason == QSystemTrayIcon.Trigger:
             self.say_now()
+
+    def mark_interaction(self):
+        self.last_interaction = time.time()
+
+    def update_state_title(self):
+        names = {"normal": "普通", "focus": "专注中", "idle": "陪你发呆", "celebrate": "庆祝"}
+        self.state_menu.setTitle(f"状态：{names.get(self.pet_state, self.pet_state)}")
+
+    def set_pet_state(self, state, action="idle", seconds=None):
+        if self.pet.is_hanging():
+            return False
+        self.pet_state = state
+        self.state_until = time.time() + seconds if seconds else None
+        self.last_interaction = time.time()
+        self.pet.set_state_action(None if state == "normal" else action)
+        self.pet.set_category_action(action)
+        self.update_state_title()
+        return True
+
+    def start_focus(self):
+        if self.set_pet_state("focus", "idle", 25 * 60):
+            self.pet.say("开始专注。我会安静陪着你。")
+
+    def complete_task(self):
+        if self.set_pet_state("celebrate", "cheer", 12):
+            self.pet.say("完成得很好。这次值得庆祝一下。")
+
+    def celebrate_clicks(self):
+        if self.set_pet_state("celebrate", "cheer", 10):
+            self.pet.say("今天很有精神嘛。奖励一段舞。")
+
+    def idle_together(self):
+        if self.set_pet_state("idle", "idle"):
+            self.pet.say("好，我们一起安静待一会儿。")
+
+    def restore_normal(self):
+        self.set_pet_state("normal", "idle")
+
+    def set_opacity(self, percent):
+        self.pet.setWindowOpacity(percent / 100)
+        for value, action in self._opacity_actions.items():
+            action.setChecked(value == percent)
+
+    def set_click_through(self, enabled):
+        self.click_through = enabled
+        self.pet.set_click_through(enabled)
+
+    def update_state(self):
+        if self.pet.is_hanging():
+            return
+        now = time.time()
+        if self.state_until and now >= self.state_until:
+            if self.pet_state == "focus":
+                if self.set_pet_state("celebrate", "cheer", 12):
+                    self.pet.say("专注结束。完成得很好。")
+            else:
+                self.restore_normal()
+            return
+        if self.pet_state != "normal":
+            return
+        idle_minutes = (now - self.last_interaction) / 60
+        if idle_minutes >= 20:
+            self.pet.set_category_action("night")
+        elif idle_minutes >= 10:
+            self.pet.set_category_action("idle")
 
     def restart(self):
         try:

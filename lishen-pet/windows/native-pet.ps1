@@ -39,6 +39,10 @@ using System.Runtime.InteropServices;
 public static class NativeIconMethods {
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool DestroyIcon(IntPtr handle);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowLong(IntPtr handle, int index);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int SetWindowLong(IntPtr handle, int index, int value);
 }
 '@
     }
@@ -262,6 +266,13 @@ public static class NativeIconMethods {
 
     $script:CurrentCharacter = 'star'
     $script:CurrentCharacterName = '星星'
+    $script:PetState = 'normal'
+    $script:StateAction = $null
+    $script:StateUntil = $null
+    $script:LastInteraction = Get-Date
+    $script:ClickCount = 0
+    $script:LastClickAt = [datetime]::MinValue
+    $script:ClickThrough = $false
 
     function Resize-PetForImage {
         param([System.Drawing.Image]$Image)
@@ -285,6 +296,9 @@ public static class NativeIconMethods {
             Set-DragImage -Direction $script:AttachedEdge
             return
         }
+        if ($null -ne $script:StateAction -and $Category -ne $script:StateAction) {
+            return
+        }
         $files = $script:StarActionMap[$Category]
         if ($null -eq $files) {
             $files = $script:StarActionMap['idle']
@@ -294,6 +308,77 @@ public static class NativeIconMethods {
         $script:DragDirection = $null
         $picture.Image = $image
         Resize-PetForImage -Image $image
+    }
+
+    function Test-IsHanging {
+        return $script:CurrentCharacter -eq 'star' -and $script:AttachedEdge -in @('left', 'right')
+    }
+
+    function Update-StateMenu {
+        if ($null -eq (Get-Variable stateMenu -ValueOnly -ErrorAction SilentlyContinue)) {
+            return
+        }
+        $stateNames = @{
+            normal = '普通'
+            focus = '专注中'
+            idle = '陪你发呆'
+            celebrate = '庆祝'
+        }
+        $name = $stateNames[$script:PetState]
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            $name = $script:PetState
+        }
+        $stateMenu.Text = "状态：$name"
+    }
+
+    function Set-PetState {
+        param(
+            [ValidateSet('normal', 'focus', 'idle', 'celebrate')][string]$State,
+            [string]$Action = 'idle',
+            [Nullable[datetime]]$Until = $null
+        )
+        if (Test-IsHanging) {
+            return $false
+        }
+        $script:PetState = $State
+        $script:StateAction = if ($State -eq 'normal') { $null } else { $Action }
+        $script:StateUntil = $Until
+        $script:LastInteraction = Get-Date
+        Set-CharacterAction -Category $Action
+        Update-StateMenu
+        Write-RunLog "桌宠状态：$State"
+        return $true
+    }
+
+    function Restore-NormalState {
+        if (Test-IsHanging) {
+            return
+        }
+        [void](Set-PetState -State 'normal' -Action 'idle')
+    }
+
+    function Set-PetOpacity {
+        param([ValidateSet(100, 80, 60, 40)][int]$Percent)
+        $petForm.Opacity = $Percent / 100.0
+        foreach ($item in $opacityItems.Values) {
+            $item.Checked = [int]$item.Tag -eq $Percent
+        }
+        Write-RunLog "透明度：$Percent%"
+    }
+
+    function Set-PetClickThrough {
+        param([bool]$Enabled)
+        $handle = $petForm.Handle
+        $style = [NativeIconMethods]::GetWindowLong($handle, -20)
+        if ($Enabled) {
+            $style = $style -bor 0x20
+        } else {
+            $style = $style -band (-bnot 0x20)
+        }
+        [void][NativeIconMethods]::SetWindowLong($handle, -20, $style)
+        $script:ClickThrough = $Enabled
+        $clickThroughItem.Checked = $Enabled
+        Write-RunLog "鼠标穿透：$Enabled"
     }
 
     function Set-DragImage {
@@ -364,6 +449,9 @@ public static class NativeIconMethods {
         $script:CurrentCharacter = $Character
         $script:AttachedEdge = $null
         $script:DragDirection = $null
+        $script:PetState = 'normal'
+        $script:StateAction = $null
+        $script:StateUntil = $null
         if ($Character -eq 'star') {
             $script:CurrentCharacterName = '星星'
             $animationTimer.Stop()
@@ -382,6 +470,7 @@ public static class NativeIconMethods {
             $lishenItem.Checked = $Character -eq 'lishen'
         }
         Write-RunLog "切换角色：$($script:CurrentCharacterName)"
+        Update-StateMenu
     }
 
     function Speak-Category {
@@ -425,6 +514,24 @@ public static class NativeIconMethods {
     [void]$menu.Items.Add($characterMenu)
     [void]$menu.Items.Add('-')
     $sayItem = $menu.Items.Add('让角色说句话')
+    $stateMenu = New-Object System.Windows.Forms.ToolStripMenuItem('状态：普通')
+    $focusItem = $stateMenu.DropDownItems.Add('开始专注（25 分钟）')
+    $completeItem = $stateMenu.DropDownItems.Add('完成一件事')
+    $idleItem = $stateMenu.DropDownItems.Add('陪我发呆')
+    [void]$stateMenu.DropDownItems.Add('-')
+    $normalItem = $stateMenu.DropDownItems.Add('恢复普通状态')
+    [void]$menu.Items.Add($stateMenu)
+    $opacityMenu = New-Object System.Windows.Forms.ToolStripMenuItem('透明度')
+    $opacityItems = @{}
+    foreach ($percent in @(100, 80, 60, 40)) {
+        $item = $opacityMenu.DropDownItems.Add("$percent%")
+        $item.Tag = $percent
+        $opacityItems[$percent] = $item
+    }
+    $opacityItems[100].Checked = $true
+    [void]$menu.Items.Add($opacityMenu)
+    $clickThroughItem = $menu.Items.Add('鼠标穿透（从托盘关闭）')
+    $clickThroughItem.CheckOnClick = $true
     $toggleItem = $menu.Items.Add('显示 / 隐藏桌宠')
     $reminderItem = $menu.Items.Add('暂停提醒')
     [void]$menu.Items.Add('-')
@@ -443,6 +550,29 @@ public static class NativeIconMethods {
     $starItem.Add_Click({ Set-Character -Character 'star' })
     $lishenItem.Add_Click({ Set-Character -Character 'lishen' })
     $sayItem.Add_Click({ Speak-Now })
+    $focusItem.Add_Click({
+        if (Set-PetState -State 'focus' -Action 'idle' -Until (Get-Date).AddMinutes(25)) {
+            Show-Bubble -Text '开始专注。我会安静陪着你。'
+        }
+    })
+    $completeItem.Add_Click({
+        if (Set-PetState -State 'celebrate' -Action 'cheer' -Until (Get-Date).AddSeconds(12)) {
+            Show-Bubble -Text '完成得很好。这次值得庆祝一下。'
+        }
+    })
+    $idleItem.Add_Click({
+        if (Set-PetState -State 'idle' -Action 'idle') {
+            Show-Bubble -Text '好，我们一起安静待一会儿。'
+        }
+    })
+    $normalItem.Add_Click({ Restore-NormalState })
+    foreach ($entry in $opacityItems.GetEnumerator()) {
+        $entry.Value.Add_Click({
+            param($sender, $eventArgs)
+            Set-PetOpacity -Percent ([int]$sender.Tag)
+        })
+    }
+    $clickThroughItem.Add_Click({ Set-PetClickThrough -Enabled $clickThroughItem.Checked })
     $toggleItem.Add_Click({
         if ($petForm.Visible) {
             $petForm.Hide()
@@ -493,6 +623,7 @@ public static class NativeIconMethods {
     $picture.Add_MouseDown({
         param($sender, $eventArgs)
         if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            $script:LastInteraction = Get-Date
             $script:Dragging = $true
             $script:Moved = $false
             $script:DragOffset = $eventArgs.Location
@@ -523,14 +654,28 @@ public static class NativeIconMethods {
         if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
             $script:Dragging = $false
             if (-not $script:Moved) {
+                $now = Get-Date
+                if (($now - $script:LastClickAt).TotalSeconds -le 4) {
+                    $script:ClickCount++
+                } else {
+                    $script:ClickCount = 1
+                }
+                $script:LastClickAt = $now
+                if (-not (Test-IsHanging) -and $script:ClickCount -ge 5) {
+                    [void](Set-PetState -State 'celebrate' -Action 'cheer' -Until $now.AddSeconds(10))
+                    Show-Bubble -Text '今天很有精神嘛。奖励一段舞。'
+                    $script:ClickCount = 0
+                    return
+                }
                 Speak-Category -Category (Get-ClickCategory)
             } elseif ($script:CurrentCharacter -eq 'star') {
                 $dragCategory = Get-DragCategory
                 $snapped = Snap-PetToEdge -Area (Get-ScreenWorkingArea)
                 if (-not $snapped) {
                     $script:AttachedEdge = $null
-                    Set-CharacterAction -Category 'idle'
                     $script:DragDirection = $null
+                    $resumeAction = if ($null -ne $script:StateAction) { $script:StateAction } else { 'idle' }
+                    Set-CharacterAction -Category $resumeAction
                 }
                 if ($null -ne $dragCategory) {
                     Speak-Category -Category $dragCategory
@@ -598,6 +743,34 @@ public static class NativeIconMethods {
     })
     $scheduleTimer.Start()
 
+    $stateTimer = New-Object System.Windows.Forms.Timer
+    $stateTimer.Interval = 30000
+    $stateTimer.Add_Tick({
+        if (Test-IsHanging) {
+            return
+        }
+        $now = Get-Date
+        if ($null -ne $script:StateUntil -and $now -ge $script:StateUntil) {
+            if ($script:PetState -eq 'focus') {
+                [void](Set-PetState -State 'celebrate' -Action 'cheer' -Until $now.AddSeconds(12))
+                Show-Bubble -Text '专注结束。完成得很好。'
+            } else {
+                Restore-NormalState
+            }
+            return
+        }
+        if ($script:PetState -ne 'normal') {
+            return
+        }
+        $idleMinutes = ($now - $script:LastInteraction).TotalMinutes
+        if ($idleMinutes -ge 20) {
+            Set-CharacterAction -Category 'night'
+        } elseif ($idleMinutes -ge 10) {
+            Set-CharacterAction -Category 'idle'
+        }
+    })
+    $stateTimer.Start()
+
     $greetingTimer = New-Object System.Windows.Forms.Timer
     $greetingTimer.Interval = 1500
     $greetingTimer.Add_Tick({
@@ -634,6 +807,25 @@ public static class NativeIconMethods {
         Write-RunLog ("悬挂点击分类：{0}" -f (Get-ClickCategory))
         Write-RunLog ("拖拽点击分类：{0}" -f (Get-DragCategory))
         Write-RunLog ("重启入口自检：{0}" -f ($null -ne $restartItem -and (Test-Path -LiteralPath $restartLauncher)))
+        Write-RunLog ("状态入口：{0}" -f ($stateMenu.DropDownItems.Count -eq 5))
+        Set-PetOpacity -Percent 80
+        Set-PetOpacity -Percent 100
+        Set-PetClickThrough -Enabled $true
+        $clickThroughEnabled = $script:ClickThrough -and $clickThroughItem.Checked
+        Set-PetClickThrough -Enabled $false
+        Write-RunLog ("显示控制：Opacity={0}; ClickThrough={1}" -f ([int]($petForm.Opacity * 100)), ($clickThroughEnabled -and -not $script:ClickThrough))
+        $script:AttachedEdge = $null
+        $script:DragDirection = $null
+        [void](Set-PetState -State 'focus' -Action 'idle' -Until (Get-Date).AddMinutes(25))
+        $focusImage = $picture.Image
+        Set-CharacterAction -Category 'cheer'
+        Write-RunLog ("状态动作锁：{0}" -f ($script:PetState -eq 'focus' -and $picture.Image -eq $focusImage))
+        Restore-NormalState
+        Set-DragImage -Direction 'right'
+        $script:AttachedEdge = 'right'
+        $stateBeforeHang = $script:PetState
+        [void](Set-PetState -State 'focus' -Action 'idle' -Until (Get-Date).AddMinutes(25))
+        Write-RunLog ("悬挂状态锁：{0}" -f ($script:PetState -eq $stateBeforeHang -and $picture.Image -eq $script:DragImages['right']))
         Write-RunLog '自检模式：3 秒后退出'
         $selfTestTimer = New-Object System.Windows.Forms.Timer
         $selfTestTimer.Interval = 3000
