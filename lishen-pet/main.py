@@ -52,7 +52,7 @@ NIGHT_HOUR      = 23      # 深夜哄睡(23:30 附近)
 NIGHT_MINUTE    = 30
 BUBBLE_SECONDS  = 8       # 气泡停留时间(秒)
 RECENT_MEMORY   = 5       # 每类最近多少条不重复
-NOTIFY_TOO      = True    # 除了气泡，是否同时发系统通知
+NOTIFY_TOO      = False   # 除了气泡，是否同时发系统通知
 
 # 动画：帧序列 + 每帧时长(毫秒)。frame_0..5 对应六个表情。
 ANIM_SEQ   = [0, 0, 1, 3, 2, 4, 5, 0]

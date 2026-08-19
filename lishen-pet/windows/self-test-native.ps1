@@ -43,6 +43,7 @@ try {
         [pscustomobject]@{ Name = '重启入口'; Pass = $content -match '重启入口：Menu=True; Launcher=True' -and $content -match '重启入口自检：True' },
         [pscustomobject]@{ Name = '状态入口'; Pass = $content -match '状态入口：True' },
         [pscustomobject]@{ Name = '显示控制'; Pass = $content -match '显示控制：Opacity=100; ClickThrough=True' },
+        [pscustomobject]@{ Name = '系统通知'; Pass = $content -match '系统通知默认关闭：True' },
         [pscustomobject]@{ Name = '状态动作'; Pass = $content -match '状态动作锁：True' },
         [pscustomobject]@{ Name = '状态锁定'; Pass = $content -match '悬挂状态锁：True' },
         [pscustomobject]@{ Name = '角色切换'; Pass = $content -match '切换角色：黎深' -and $content -match '切换角色：星星' },

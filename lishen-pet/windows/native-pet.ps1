@@ -13,6 +13,7 @@ $LinesPath = Join-Path $ProjectRoot 'data\lines.json'
 $IsSelfTest = $SelfTest -or [bool]$env:LISHEN_SELFTEST
 $RunLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-$PID.log" } else { Join-Path $ProjectRoot 'run.log' }
 $ErrorLog = if ($IsSelfTest) { Join-Path $env:TEMP "lishen-pet-selftest-error-$PID.log" } else { Join-Path $ProjectRoot 'error.log' }
+$script:NotifyToo = $false
 
 function Write-RunLog {
     param([string]$Message)
@@ -487,7 +488,7 @@ public static class NativeIconMethods {
         }
         Set-CharacterAction -Category $Category
         Show-Bubble -Text $line
-        if ($Notify) {
+        if ($Notify -and $script:NotifyToo) {
             $tray.BalloonTipTitle = $script:CurrentCharacterName
             $tray.BalloonTipText = $line
             $tray.ShowBalloonTip(6000)
@@ -814,6 +815,7 @@ public static class NativeIconMethods {
         $clickThroughEnabled = $script:ClickThrough -and $clickThroughItem.Checked
         Set-PetClickThrough -Enabled $false
         Write-RunLog ("显示控制：Opacity={0}; ClickThrough={1}" -f ([int]($petForm.Opacity * 100)), ($clickThroughEnabled -and -not $script:ClickThrough))
+        Write-RunLog ("系统通知默认关闭：{0}" -f (-not $script:NotifyToo))
         $script:AttachedEdge = $null
         $script:DragDirection = $null
         [void](Set-PetState -State 'focus' -Action 'idle' -Until (Get-Date).AddMinutes(25))
