@@ -18,6 +18,12 @@ $ThrowWaitSec = 4
 $AngrySec = 12
 $ThrowTickMs = 16
 $ThrowPadPx = 180
+$FeedSec = 8
+$ThrowSensitivityLevels = @(
+    @{ Label = '高灵敏度'; Speed = 1100 }
+    @{ Label = '标准'; Speed = 1450 }
+    @{ Label = '低灵敏度'; Speed = 1800 }
+)
 $script:NotifyToo = $false
 
 function Write-RunLog {
@@ -125,6 +131,7 @@ public static class NativeIconMethods {
         dinner = @('沈星回喵：饿了.gif', '沈星回喵：嚼嚼嚼.gif', '沈星回喵：吃撑了.gif')
         night = @('沈星回喵：打瞌睡.gif', '沈星回喵：躺平.gif')
         cheer = @('沈星回喵：热舞正面.gif', '沈星回喵：热舞转身.gif')
+        feed = @('沈星回喵：饿了.gif', '沈星回喵：嚼嚼嚼.gif', '沈星回喵：吃撑了.gif')
         angry = @('沈星回喵：糟糕.gif')
         miss = @('沈星回喵：兔叽咪.gif', '沈星回喵：玩.gif')
         weather = @('沈星回喵：左摇摆.gif', '沈星回喵：右摇摆.gif')
@@ -338,6 +345,7 @@ public static class NativeIconMethods {
             focus = '专注中'
             idle = '陪你发呆'
             celebrate = '庆祝'
+            feed = '喂食中'
             angry = '生气中'
             thrown = '飞出去'
         }
@@ -350,7 +358,7 @@ public static class NativeIconMethods {
 
     function Set-PetState {
         param(
-            [ValidateSet('normal', 'focus', 'idle', 'celebrate', 'angry', 'thrown')][string]$State,
+            [ValidateSet('normal', 'focus', 'idle', 'celebrate', 'feed', 'angry', 'thrown')][string]$State,
             [string]$Action = 'idle',
             [Nullable[datetime]]$Until = $null
         )
@@ -365,6 +373,19 @@ public static class NativeIconMethods {
         Update-StateMenu
         Write-RunLog "桌宠状态：$State"
         return $true
+    }
+
+    function Set-ThrowSensitivity {
+        param([int]$SpeedPx)
+        $allowed = @($ThrowSensitivityLevels | ForEach-Object { $_.Speed })
+        if ($allowed -notcontains $SpeedPx) {
+            return
+        }
+        $script:ThrowSpeedPx = $SpeedPx
+        foreach ($entry in $throwSensitivityItems.GetEnumerator()) {
+            $entry.Value.Checked = ([int]$entry.Key -eq $SpeedPx)
+        }
+        Write-RunLog "甩飞灵敏度：$SpeedPx"
     }
 
     function Clamp-Number {
@@ -545,7 +566,7 @@ public static class NativeIconMethods {
         if ($null -eq $StartPos -or $null -eq $ReleasePos) {
             return $false
         }
-        if (Test-IsHanging -or $script:PetState -in @('thrown', 'angry')) {
+        if (Test-IsHanging -or $script:PetState -in @('thrown', 'angry', 'feed')) {
             return $false
         }
         $script:ThrowOrigin = New-Object System.Drawing.Point($petForm.Left, $petForm.Top)
@@ -630,6 +651,17 @@ public static class NativeIconMethods {
         Write-RunLog "鼠标穿透：$Enabled"
     }
 
+    function Feed-Pet {
+        if (Test-IsHanging -or $script:PetState -in @('thrown', 'angry', 'feed')) {
+            return $false
+        }
+        if (-not (Set-PetState -State 'feed' -Action 'feed' -Until (Get-Date).AddSeconds($FeedSec))) {
+            return $false
+        }
+        Speak-Category 'feed'
+        return $true
+    }
+
     function Set-DragImage {
         param([ValidateSet('left', 'right')][string]$Direction)
         if ($script:CurrentCharacter -ne 'star') {
@@ -677,6 +709,9 @@ public static class NativeIconMethods {
         if ($script:PetState -eq 'angry') {
             return 'angry'
         }
+        if ($script:PetState -eq 'feed') {
+            return 'feed'
+        }
         if ($script:CurrentCharacter -eq 'star' -and $script:AttachedEdge -in @('left', 'right')) {
             return 'hanging'
         }
@@ -721,6 +756,8 @@ public static class NativeIconMethods {
             $animationTimer.Interval = $animationDurations[0]
             $animationTimer.Start()
         }
+        $feedItem.Enabled = $Character -eq 'star'
+        $throwSensitivityMenu.Enabled = $Character -eq 'star'
         $tray.Text = "$($script:CurrentCharacterName)桌宠"
         if ($null -ne (Get-Variable starItem -ValueOnly -ErrorAction SilentlyContinue)) {
             $starItem.Checked = $Character -eq 'star'
@@ -737,6 +774,9 @@ public static class NativeIconMethods {
         )
         if ($script:PetState -eq 'thrown') {
             return
+        }
+        if ($script:PetState -eq 'feed') {
+            $Category = 'feed'
         }
         if ($script:PetState -eq 'angry' -and $Category -ne 'angry') {
             $Category = 'angry'
@@ -759,7 +799,9 @@ public static class NativeIconMethods {
 
     function Speak-Now {
         $hour = (Get-Date).Hour
-        if ($hour -eq 11) {
+        if ($script:PetState -eq 'feed') {
+            Speak-Category 'feed'
+        } elseif ($hour -eq 11) {
             Speak-Category 'lunch'
         } elseif ($hour -eq 18) {
             Speak-Category 'dinner'
@@ -781,6 +823,7 @@ public static class NativeIconMethods {
     $focusItem = $stateMenu.DropDownItems.Add('开始专注（25 分钟）')
     $completeItem = $stateMenu.DropDownItems.Add('完成一件事')
     $idleItem = $stateMenu.DropDownItems.Add('陪我发呆')
+    $feedItem = $stateMenu.DropDownItems.Add('喂食')
     [void]$stateMenu.DropDownItems.Add('-')
     $normalItem = $stateMenu.DropDownItems.Add('恢复普通状态')
     [void]$menu.Items.Add($stateMenu)
@@ -793,6 +836,15 @@ public static class NativeIconMethods {
     }
     $opacityItems[100].Checked = $true
     [void]$menu.Items.Add($opacityMenu)
+    $throwSensitivityMenu = New-Object System.Windows.Forms.ToolStripMenuItem('甩飞灵敏度')
+    $throwSensitivityItems = @{}
+    foreach ($itemDef in $ThrowSensitivityLevels) {
+        $item = $throwSensitivityMenu.DropDownItems.Add($itemDef.Label)
+        $item.Tag = $itemDef.Speed
+        $throwSensitivityItems[[int]$itemDef.Speed] = $item
+    }
+    $throwSensitivityItems[$ThrowSpeedPx].Checked = $true
+    [void]$menu.Items.Add($throwSensitivityMenu)
     $clickThroughItem = $menu.Items.Add('鼠标穿透（从托盘关闭）')
     $clickThroughItem.CheckOnClick = $true
     $toggleItem = $menu.Items.Add('显示 / 隐藏桌宠')
@@ -828,11 +880,22 @@ public static class NativeIconMethods {
             Show-Bubble -Text '好，我们一起安静待一会儿。'
         }
     })
+    $feedItem.Add_Click({
+        if (Feed-Pet) {
+            Show-Bubble -Text '先吃点东西，再继续忙。'
+        }
+    })
     $normalItem.Add_Click({ Restore-NormalState })
     foreach ($entry in $opacityItems.GetEnumerator()) {
         $entry.Value.Add_Click({
             param($sender, $eventArgs)
             Set-PetOpacity -Percent ([int]$sender.Tag)
+        })
+    }
+    foreach ($entry in $throwSensitivityItems.GetEnumerator()) {
+        $entry.Value.Add_Click({
+            param($sender, $eventArgs)
+            Set-ThrowSensitivity -SpeedPx ([int]$sender.Tag)
         })
     }
     $clickThroughItem.Add_Click({ Set-PetClickThrough -Enabled $clickThroughItem.Checked })
@@ -1109,7 +1172,7 @@ public static class NativeIconMethods {
         Write-RunLog ("悬挂点击分类：{0}" -f (Get-ClickCategory))
         Write-RunLog ("拖拽点击分类：{0}" -f (Get-DragCategory))
         Write-RunLog ("重启入口自检：{0}" -f ($null -ne $restartItem -and (Test-Path -LiteralPath $restartLauncher)))
-        Write-RunLog ("状态入口：{0}" -f ($stateMenu.DropDownItems.Count -eq 5))
+        Write-RunLog ("状态入口：{0}" -f ($stateMenu.DropDownItems.Count -eq 6))
         Set-PetOpacity -Percent 80
         Set-PetOpacity -Percent 100
         Set-PetClickThrough -Enabled $true

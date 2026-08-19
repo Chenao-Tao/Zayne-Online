@@ -58,6 +58,12 @@ THROW_WAIT_SEC  = 4       # 甩飞后多久回来
 ANGRY_SEC       = 12      # 回来后生气多久
 THROW_TICK_MS    = 16      # 甩飞动画刷新间隔
 THROW_PAD_PX     = 180     # 甩出屏幕外的余量
+FEED_SEC        = 8       # 喂食动作停留时间
+THROW_SENSITIVITY_LEVELS = [
+    ("高灵敏度", 1100),
+    ("标准", 1450),
+    ("低灵敏度", 1800),
+]
 
 # 动画：帧序列 + 每帧时长(毫秒)。frame_0..5 对应六个表情。
 ANIM_SEQ   = [0, 0, 1, 3, 2, 4, 5, 0]
@@ -71,6 +77,7 @@ STAR_ACTIONS = {
     "dinner": ["沈星回喵：饿了.gif", "沈星回喵：嚼嚼嚼.gif", "沈星回喵：吃撑了.gif"],
     "night": ["沈星回喵：打瞌睡.gif", "沈星回喵：躺平.gif"],
     "cheer": ["沈星回喵：热舞正面.gif", "沈星回喵：热舞转身.gif"],
+    "feed": ["沈星回喵：饿了.gif", "沈星回喵：嚼嚼嚼.gif", "沈星回喵：吃撑了.gif"],
     "angry": ["沈星回喵：糟糕.gif"],
     "miss": ["沈星回喵：兔叽咪.gif", "沈星回喵：玩.gif"],
     "weather": ["沈星回喵：左摇摆.gif", "沈星回喵：右摇摆.gif"],
@@ -455,7 +462,10 @@ class Pet(QWidget):
                     self._drag_last_pos = None
                     self._drag_last_at = 0
                     return
-                category = "hanging" if self.character == "star" and self._attached_edge else "poke"
+                if self._state_action == "feed":
+                    category = "feed"
+                else:
+                    category = "hanging" if self.character == "star" and self._attached_edge else "poke"
                 self.say_category(category)
             elif self.character == "star":
                 release_pos = e.globalPosition().toPoint()
@@ -474,7 +484,7 @@ class Pet(QWidget):
                     recent_speed = recent_distance / elapsed
                     speed = max(recent_speed, average_speed * 0.7)
                     if (self.on_throw and not self.is_hanging() and
-                            speed >= THROW_SPEED_PX and drag_distance >= 160 and recent_distance >= 40):
+                            speed >= self.throw_speed_px and drag_distance >= 160 and recent_distance >= 40):
                         direction = "left" if dx < 0 else "right"
                         self._drag_pos = None
                         self._drag_start_pos = None
@@ -523,6 +533,7 @@ class Controller:
         self.click_through = False
         self.throw_origin = None
         self.throw_motion = None
+        self.throw_speed_px = THROW_SPEED_PX
 
         dbg("Controller: 创建托盘图标")
         icon_path = os.path.join(ASSET_DIR, "icon_256.png")
@@ -543,11 +554,14 @@ class Controller:
         act_complete.triggered.connect(self.complete_task)
         act_idle = QAction("陪我发呆", app)
         act_idle.triggered.connect(self.idle_together)
+        self.act_feed = QAction("喂食", app)
+        self.act_feed.triggered.connect(self.feed_pet)
         act_normal = QAction("恢复普通状态", app)
         act_normal.triggered.connect(self.restore_normal)
         self.state_menu.addAction(act_focus)
         self.state_menu.addAction(act_complete)
         self.state_menu.addAction(act_idle)
+        self.state_menu.addAction(self.act_feed)
         self.state_menu.addSeparator()
         self.state_menu.addAction(act_normal)
         opacity_menu = QMenu("透明度", menu)
@@ -562,6 +576,15 @@ class Controller:
         self.act_click_through = QAction("鼠标穿透（从托盘关闭）", app)
         self.act_click_through.setCheckable(True)
         self.act_click_through.toggled.connect(self.set_click_through)
+        throw_menu = QMenu("甩飞灵敏度", menu)
+        self._throw_speed_actions = {}
+        for label, speed_px in THROW_SENSITIVITY_LEVELS:
+            action = QAction(label, app)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked=False, value=speed_px: self.set_throw_sensitivity(value))
+            throw_menu.addAction(action)
+            self._throw_speed_actions[speed_px] = action
+        self._throw_speed_actions[self.throw_speed_px].setChecked(True)
         character_menu = QMenu("切换角色", menu)
         act_star = QAction("星星（默认）", app)
         act_lishen = QAction("黎深", app)
@@ -578,6 +601,7 @@ class Controller:
         menu.addAction(self.act_say)
         menu.addMenu(self.state_menu)
         menu.addMenu(opacity_menu)
+        menu.addMenu(throw_menu)
         for a in (self.act_click_through, act_toggle, self.act_rem):
             menu.addAction(a)
         menu.addSeparator()
@@ -586,6 +610,7 @@ class Controller:
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_click)
         self._character_actions = {"star": act_star, "lishen": act_lishen}
+        self._throw_speed_menu = throw_menu
         self.set_character("star")
         dbg("Controller: 显示托盘")
         self.tray.show()
@@ -620,6 +645,8 @@ class Controller:
         self._drag_last_at = 0
         self.pet.set_state_action(None)
         self.pet.set_character(character)
+        self.act_feed.setEnabled(character == "star")
+        self._throw_speed_menu.setEnabled(character == "star")
         if not self.pet.isVisible():
             self.pet.show()
         self.tray.setToolTip(self.character_name)
@@ -666,7 +693,7 @@ class Controller:
         delta_x = release_pos.x() - start_pos.x()
         delta_y = release_pos.y() - start_pos.y()
         drag_len = max(math.hypot(delta_x, delta_y), 1.0)
-        force = self._clamp((speed - THROW_SPEED_PX) / 1800.0, 0.0, 1.0)
+        force = self._clamp((speed - self.throw_speed_px) / 1800.0, 0.0, 1.0)
         exit_pad = THROW_PAD_PX + min(130, 30 + drag_len * 0.06 + force * 90)
         target_x = (area.left() - width - exit_pad) if direction == "left" else (area.right() + width + exit_pad)
         target_y = self._clamp(
@@ -738,6 +765,7 @@ class Controller:
             "focus": "专注中",
             "idle": "陪你发呆",
             "celebrate": "庆祝",
+            "feed": "喂食中",
             "angry": "生气中",
             "thrown": "飞出去",
         }
@@ -754,8 +782,17 @@ class Controller:
         self.update_state_title()
         return True
 
+    def set_throw_sensitivity(self, speed_px):
+        allowed = {value for _, value in THROW_SENSITIVITY_LEVELS}
+        if speed_px not in allowed:
+            return
+        self.throw_speed_px = speed_px
+        for value, action in self._throw_speed_actions.items():
+            action.setChecked(value == speed_px)
+        dbg(f"甩飞灵敏度：{speed_px}")
+
     def throw_pet(self, direction, drag_start_pos, release_pos, speed):
-        if self.pet.is_hanging() or self.pet_state in ("thrown", "angry"):
+        if self.pet.is_hanging() or self.pet_state in ("thrown", "angry", "feed"):
             return False
         self.throw_origin = self.pet.pos()
         self.pet_state = "thrown"
@@ -804,6 +841,12 @@ class Controller:
     def celebrate_clicks(self):
         if self.set_pet_state("celebrate", "cheer", 10):
             self.pet.say("今天很有精神嘛。奖励一段舞。")
+
+    def feed_pet(self):
+        if self.pet.is_hanging() or self.pet_state in ("thrown", "angry", "feed"):
+            return
+        if self.set_pet_state("feed", "feed", FEED_SEC):
+            self.pet.say_category("feed")
 
     def idle_together(self):
         if self.set_pet_state("idle", "idle"):
@@ -865,7 +908,9 @@ class Controller:
             if self.pet_state == "thrown":
                 return
             h = datetime.now().hour
-            if self.pet_state == "angry":
+            if self.pet_state == "feed":
+                cat = "feed"
+            elif self.pet_state == "angry":
                 cat = "angry"
             elif h == LUNCH_HOUR: cat = "lunch"
             elif h == DINNER_HOUR: cat = "dinner"
@@ -897,6 +942,8 @@ class Controller:
     def _speak(self, cat):
         if self.pet_state == "thrown":
             return
+        if self.pet_state == "feed":
+            cat = "feed"
         if self.pet_state == "angry":
             cat = "angry"
         if not self.pet.isVisible():
