@@ -65,9 +65,14 @@ STAR_ACTIONS = {
     "lunch": ["沈星回喵：饿了.gif", "沈星回喵：嚼嚼嚼.gif", "沈星回喵：吃撑了.gif"],
     "dinner": ["沈星回喵：饿了.gif", "沈星回喵：嚼嚼嚼.gif", "沈星回喵：吃撑了.gif"],
     "night": ["沈星回喵：打瞌睡.gif", "沈星回喵：躺平.gif"],
-    "cheer": ["沈星回喵：热舞正面.gif", "沈星回喵：热舞转身.gif", "沈星回喵：左拎喵喵.gif", "沈星回喵：右拎喵喵.gif"],
+    "cheer": ["沈星回喵：热舞正面.gif", "沈星回喵：热舞转身.gif"],
     "miss": ["沈星回喵：兔叽咪.gif", "沈星回喵：玩.gif"],
     "weather": ["沈星回喵：左摇摆.gif", "沈星回喵：右摇摆.gif"],
+}
+
+STAR_DRAG_ACTIONS = {
+    "left": "沈星回喵：左拎喵喵.gif",
+    "right": "沈星回喵：右拎喵喵.gif",
 }
 
 
@@ -89,14 +94,20 @@ class Lines:
     def __init__(self, path):
         with open(path, "r", encoding="utf-8") as f:
             self.data = json.load(f)
-        self.cats = self.data.get("categories", {})
+        self.default_cats = self.data.get("categories", {})
+        characters = self.data.get("characters", {})
+        self.character_cats = {
+            "lishen": self.default_cats,
+            "star": characters.get("star", {}).get("categories", self.default_cats),
+        }
         self.recent = defaultdict(lambda: deque(maxlen=RECENT_MEMORY))
 
-    def pick(self, category):
-        pool = self.cats.get(category) or []
+    def pick(self, category, character="lishen"):
+        cats = self.character_cats.get(character, self.default_cats)
+        pool = cats.get(category) or []
         if not pool:
             return None
-        recent = self.recent[category]
+        recent = self.recent[(character, category)]
         choices = [s for s in pool if s not in recent] or pool
         line = random.choice(choices)
         recent.append(line)
@@ -221,6 +232,9 @@ class Pet(QWidget):
         self.character = "lishen"
         self._movie = None
         self._star_movies = {}
+        self._attached_edge = None
+        self._drag_direction = None
+        self._last_global_x = 0
 
         self.frames = []
         for i in range(6):
@@ -265,9 +279,8 @@ class Pet(QWidget):
         self.resize(w, PET_HEIGHT)
         self.label.resize(self.size())
 
-    def _set_star_action(self, category):
-        files = STAR_ACTIONS.get(category) or STAR_ACTIONS["idle"]
-        movie = self._star_movie(random.choice(files))
+    def _set_star_file(self, filename):
+        movie = self._star_movie(filename)
         if movie is None:
             return
         if self._movie is not None:
@@ -281,10 +294,40 @@ class Pet(QWidget):
         self.label.setMovie(movie)
         self._resize_for_size(movie.scaledSize())
 
+    def _set_star_action(self, category):
+        files = STAR_ACTIONS.get(category) or STAR_ACTIONS["idle"]
+        self._drag_direction = None
+        self._set_star_file(random.choice(files))
+
+    def _set_drag_action(self, direction):
+        if self.character != "star" or self._drag_direction == direction:
+            return
+        self._drag_direction = direction
+        self._set_star_file(STAR_DRAG_ACTIONS[direction])
+
+    def _snap_to_edge(self, global_pos):
+        screen = QApplication.screenAt(global_pos) or QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        near_left = self.x() <= area.left() + 32
+        near_right = self.x() + self.width() >= area.x() + area.width() - 32
+        if not near_left and not near_right:
+            return False
+        center_x = self.x() + self.width() // 2
+        area_center_x = area.x() + area.width() // 2
+        direction = "left" if near_left and (not near_right or center_x <= area_center_x) else "right"
+        self._set_drag_action(direction)
+        x = area.left() if direction == "left" else area.x() + area.width() - self.width()
+        y = max(area.top(), min(self.y(), area.y() + area.height() - self.height()))
+        self.move(x, y)
+        self._attached_edge = direction
+        return True
+
     def set_character(self, character):
         if character not in ("star", "lishen"):
             return
         self.character = character
+        self._attached_edge = None
+        self._drag_direction = None
         if character == "star":
             self.anim.stop()
             self._set_star_action("idle")
@@ -301,7 +344,7 @@ class Pet(QWidget):
         self.anim.start(ANIM_MS[0])
 
     def set_category_action(self, category):
-        if self.character == "star":
+        if self.character == "star" and self._attached_edge is None:
             self._set_star_action(category)
 
     def _set_frame(self, idx):
@@ -328,19 +371,25 @@ class Pet(QWidget):
 
     def say_category(self, cat):
         self.set_category_action(cat)
-        self.say(self.lines.pick(cat))
+        self.say(self.lines.pick(cat, self.character))
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
             self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._moved = False
+            self._last_global_x = e.globalPosition().toPoint().x()
 
     def mouseMoveEvent(self, e):
         if self._drag_pos is not None and (e.buttons() & Qt.LeftButton):
             new = e.globalPosition().toPoint() - self._drag_pos
             if (new - self.pos()).manhattanLength() > 3:
                 self._moved = True
+                self._attached_edge = None
             self.move(new)
+            global_x = e.globalPosition().toPoint().x()
+            if self.character == "star" and global_x != self._last_global_x:
+                self._set_drag_action("left" if global_x < self._last_global_x else "right")
+                self._last_global_x = global_x
             # 气泡若正显示，跟着人一起走
             if self.bubble.isVisible():
                 self.bubble.reposition(self.x() + self.width() / 2,
@@ -349,7 +398,11 @@ class Pet(QWidget):
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton:
             if not self._moved:
-                self.say_category("poke")
+                category = "hanging" if self.character == "star" and self._attached_edge else "poke"
+                self.say_category(category)
+            elif self.character == "star" and not self._snap_to_edge(e.globalPosition().toPoint()):
+                self._attached_edge = None
+                self._set_star_action("idle")
             self._drag_pos = None
 
 
@@ -378,7 +431,7 @@ class Controller:
         self.tray.setToolTip("星星")
         dbg("Controller: 创建菜单")
         menu = QMenu()
-        self.act_say = QAction("让星星说句话", app)
+        self.act_say = QAction("让角色说句话", app)
         self.act_say.triggered.connect(self.say_now)
         act_toggle = QAction("显示 / 隐藏桌宠", app)
         act_toggle.triggered.connect(self.toggle_pet)
@@ -423,7 +476,6 @@ class Controller:
         self.character_name = "星星" if character == "star" else "黎深"
         self.pet.set_character(character)
         self.tray.setToolTip(self.character_name)
-        self.act_say.setText(f"让{self.character_name}说句话")
         for key, action in self._character_actions.items():
             action.setCheckable(True)
             action.setChecked(key == character)
@@ -465,11 +517,12 @@ class Controller:
     def _speak(self, cat):
         if not self.pet.isVisible():
             self.pet.show()
-        line = self.lines.pick(cat)
+        self.pet.set_category_action(cat)
+        line = self.lines.pick(cat, self.character)
         self.pet.say(line)
         if NOTIFY_TOO and line:
             try:
-                self.tray.showMessage("黎深", line, QSystemTrayIcon.NoIcon, 6000)
+                self.tray.showMessage(self.character_name, line, QSystemTrayIcon.NoIcon, 6000)
             except Exception:
                 pass
 

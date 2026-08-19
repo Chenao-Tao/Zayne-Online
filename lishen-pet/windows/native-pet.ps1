@@ -47,12 +47,29 @@ public static class NativeIconMethods {
 
     Write-RunLog '读取台词库'
     $lineData = Get-Content -LiteralPath $LinesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $script:Categories = $lineData.categories
+    $script:CharacterCategories = @{
+        lishen = $lineData.categories
+        star = $lineData.categories
+    }
+    $charactersProperty = $lineData.PSObject.Properties['characters']
+    if ($null -ne $charactersProperty) {
+        $starProperty = $charactersProperty.Value.PSObject.Properties['star']
+        if ($null -ne $starProperty) {
+            $starCategoriesProperty = $starProperty.Value.PSObject.Properties['categories']
+            if ($null -ne $starCategoriesProperty) {
+                $script:CharacterCategories['star'] = $starCategoriesProperty.Value
+            }
+        }
+    }
     $script:Recent = @{}
 
     function Get-RandomLine {
         param([string]$Category)
-        $property = $script:Categories.PSObject.Properties[$Category]
+        $categories = $script:CharacterCategories[$script:CurrentCharacter]
+        if ($null -eq $categories) {
+            $categories = $script:CharacterCategories['lishen']
+        }
+        $property = $categories.PSObject.Properties[$Category]
         if ($null -eq $property) {
             return $null
         }
@@ -61,15 +78,16 @@ public static class NativeIconMethods {
             return $null
         }
         $recent = @()
-        if ($script:Recent.ContainsKey($Category)) {
-            $recent = @($script:Recent[$Category])
+        $recentKey = "{0}:{1}" -f $script:CurrentCharacter, $Category
+        if ($script:Recent.ContainsKey($recentKey)) {
+            $recent = @($script:Recent[$recentKey])
         }
         $choices = @($pool | Where-Object { $recent -notcontains $_ })
         if ($choices.Count -eq 0) {
             $choices = $pool
         }
         $line = $choices | Get-Random
-        $script:Recent[$Category] = @($recent + $line | Select-Object -Last 5)
+        $script:Recent[$recentKey] = @($recent + $line | Select-Object -Last 5)
         return [string]$line
     }
 
@@ -321,6 +339,13 @@ public static class NativeIconMethods {
         return $true
     }
 
+    function Get-ClickCategory {
+        if ($script:CurrentCharacter -eq 'star' -and $script:AttachedEdge -in @('left', 'right')) {
+            return 'hanging'
+        }
+        return 'poke'
+    }
+
     function Set-Character {
         param([ValidateSet('star', 'lishen')][string]$Character)
         $script:CurrentCharacter = $Character
@@ -462,7 +487,7 @@ public static class NativeIconMethods {
         param($sender, $eventArgs)
         if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
             if (-not $script:Moved) {
-                Speak-Category 'poke'
+                Speak-Category -Category (Get-ClickCategory)
             } elseif ($script:CurrentCharacter -eq 'star') {
                 $snapped = Snap-PetToEdge -Area (Get-ScreenWorkingArea)
                 if (-not $snapped) {
@@ -546,7 +571,14 @@ public static class NativeIconMethods {
 
     if ($IsSelfTest) {
         Set-Character -Character 'lishen'
+        $lishenLine = Get-RandomLine -Category 'greeting'
+        $lishenGreetingPool = @($script:CharacterCategories['lishen'].PSObject.Properties['greeting'].Value)
+        $lishenLineSeparated = $lishenGreetingPool -contains $lishenLine
         Set-Character -Character 'star'
+        $starLine = Get-RandomLine -Category 'greeting'
+        $starGreetingPool = @($script:CharacterCategories['star'].PSObject.Properties['greeting'].Value)
+        $starLineSeparated = $starGreetingPool -contains $starLine -and $lishenGreetingPool -notcontains $starLine
+        Write-RunLog ("角色台词分离：Lishen={0}; Star={1}" -f $lishenLineSeparated, $starLineSeparated)
         $selfTestArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
         $petForm.Left = $selfTestArea.Left - [int]($petForm.Width / 2)
         $leftSnapped = Snap-PetToEdge -Area $selfTestArea
@@ -558,6 +590,9 @@ public static class NativeIconMethods {
         Set-CharacterAction -Category 'idle'
         $hangingPreserved = $script:AttachedEdge -eq 'right' -and $picture.Image -eq $script:DragImages['right'] -and $petForm.Right -eq $selfTestArea.Right
         Write-RunLog ("悬挂状态保持：{0}" -f $hangingPreserved)
+        $hangingLine = Get-RandomLine -Category 'hanging'
+        Write-RunLog ("悬挂台词库：{0}" -f (-not [string]::IsNullOrWhiteSpace($hangingLine)))
+        Write-RunLog ("悬挂点击分类：{0}" -f (Get-ClickCategory))
         Write-RunLog '自检模式：3 秒后退出'
         $selfTestTimer = New-Object System.Windows.Forms.Timer
         $selfTestTimer.Interval = 3000

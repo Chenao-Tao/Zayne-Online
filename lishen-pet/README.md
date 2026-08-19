@@ -87,8 +87,11 @@ Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按�
 
 ## ⚙️ 自定义
 
-**改台词** —— 编辑 `data/lines.json`。按分类（`greeting` / `daily` / `night` /
-`cheer` / `miss` / `weather` / `lunch` / `dinner` / `poke`）增删句子即可，改完重启生效。
+**改台词** —— 编辑 `data/lines.json`。顶层 `categories` 是黎深台词；星星专属台词位于
+`characters.star.categories`。按分类（`greeting` / `daily` / `night` / `cheer` /
+`miss` / `weather` / `lunch` / `dinner` / `poke` / `hanging`）增删句子即可，改完重启生效。
+
+星星拖到屏幕左右边缘后会保持拎喵悬挂动作；悬挂期间点击只从 `hanging` 分类取台词，不会切换到普通点击表情。
 
 **改时间、气泡样式、桌宠大小** —— 打开 `main.py`，顶部的配置区都有中文注释：
 `LUNCH_HOUR`、`DINNER_HOUR`、`NIGHT_HOUR`、`PET_HEIGHT`、`BUBBLE_FILL`（气泡颜色）、

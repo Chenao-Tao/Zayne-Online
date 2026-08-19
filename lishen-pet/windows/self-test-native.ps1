@@ -34,9 +34,11 @@ try {
         [pscustomobject]@{ Name = 'STA 线程'; Pass = $content -match '线程单元：STA' },
         [pscustomobject]@{ Name = '托盘对象'; Pass = $content -match '托盘状态：Visible=True; Menu=True; PetMenu=True' },
         [pscustomobject]@{ Name = '功能菜单'; Pass = $content -match '功能菜单：让角色说句话' },
+        [pscustomobject]@{ Name = '角色台词'; Pass = $content -match '角色台词分离：Lishen=True; Star=True' },
         [pscustomobject]@{ Name = '拖拽素材'; Pass = $content -match '拖拽动作素材已独立加载' },
         [pscustomobject]@{ Name = '贴边悬挂'; Pass = $content -match '贴边悬挂：Left=True; Right=True' },
         [pscustomobject]@{ Name = '悬挂保持'; Pass = $content -match '悬挂状态保持：True' },
+        [pscustomobject]@{ Name = '悬挂台词'; Pass = $content -match '悬挂台词库：True' -and $content -match '悬挂点击分类：hanging' },
         [pscustomobject]@{ Name = '角色切换'; Pass = $content -match '切换角色：黎深' -and $content -match '切换角色：星星' },
         [pscustomobject]@{ Name = '消息循环退出'; Pass = $content -match 'Windows 原生版已退出' },
         [pscustomobject]@{ Name = '无新终端'; Pass = $newTerminals.Count -eq 0 }
