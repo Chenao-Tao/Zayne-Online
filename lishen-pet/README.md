@@ -2,10 +2,12 @@
 
 一只会陪你的 macOS / Windows 桌面小宠物。以《恋与深空》角色 **黎深（Zayne）** 的口吻，
 在整点、饭点和深夜随机冒出一句短短的关心；点他一下，他会回你话。悬浮、透明、
-置顶，可以拖着到处走，气泡会跟着他一起动。
+置顶，可以拖着到处走，气泡会跟着他一起动。从托盘菜单还能切换到 **星星（沈星回）**
+的猫猫形态——他有 16 个专属动作素材和另一套台词，可以喂苹果、甩飞、贴边悬挂。
 
 <p align="center">
-  <img src="assets/lishen.gif" width="180" alt="黎深桌宠动画">
+  <img src="assets/lishen.gif" width="170" height="170" alt="黎深动画">
+  <img src="assets/star/沈星回喵：嗨.gif" width="170" height="170" alt="星星动画">
 </p>
 
 > 情侣口吻的克制温柔，不说教、不肉麻、不"人机"。台词全部可自定义。
@@ -38,7 +40,10 @@
 
 1. 下载 / clone 本仓库到本地。
 2. 双击 `启动黎深.command`。首次会自动创建独立环境并安装依赖（走清华镜像，约 1–2 分钟），之后秒开。
-3. 想让他常驻后台、开机自启：双击 `设置开机自启.command`。
+3. 想让他常驻后台、开机自启：双击 `设置开机自启.command`（取消自启：执行
+   `launchctl unload ~/Library/LaunchAgents/com.lishen.pet.plist` 并删除该文件）。
+4. 出问题先双击 `诊断.command`（生成 `诊断报告.txt`）；想验证启动流程，双击
+   `测试主程序.command`（自动跑 3 秒后退出，输出启动日志）。
 
 > 首次双击若提示"未验证的开发者"，到 **系统设置 → 隐私与安全性** 里点"仍要打开"即可。
 
@@ -57,6 +62,8 @@ python main.py
 ## 🚀 安装与运行（Windows 11，无需 Python）
 
 > Windows 版本默认使用系统自带的 PowerShell 5.1 和 .NET WinForms，**不需要安装 Python、PySide6 或其他运行库**。
+> 原生版（`windows/native-pet.ps1`）与 macOS 的 PySide6 版功能一一对应：台词库、
+> 动画素材、甩飞物理、喂食与悬挂逻辑完全一致，只是渲染实现不同。
 
 **最简单：双击运行**
 
@@ -77,8 +84,13 @@ wscript.exe .\windows\launch-native.vbs
 **诊断与自检**
 
 - `诊断-Windows.cmd`：生成 `诊断报告-Windows.txt`。
-- `测试主程序-Windows.cmd`：运行 3 秒并生成 `主程序测试输出.txt`。
+- `测试主程序-Windows.cmd`：运行 3 秒并生成 `主程序测试输出.txt`（内含 20 项自动断言，含"无新终端"检测）。
 - `启动黎深-Windows-Python.cmd`：可选的 PySide6/Python 版本，适合开发和调试。
+
+**运行日志**
+
+桌宠每次启动都会清空重写根目录的 `run.log`（启动过程分步记录），未捕获的错误追加写进
+`error.log`。排查问题时，把这两个日志文件连同诊断报告一起提供即可。
 
 **切换角色**
 
@@ -95,8 +107,9 @@ Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按�
 
 **改台词** —— 编辑 `data/lines.json`。顶层 `categories` 是黎深台词；星星专属台词位于
 `characters.star.categories`。按分类（`greeting` / `daily` / `night` / `cheer` /
-`miss` / `weather` / `lunch` / `dinner` / `poke` / `drag_left` / `drag_right` /
-`hanging`）增删句子即可，改完重启生效。
+`miss` / `weather` / `lunch` / `dinner` / `poke` / `feed` / `drag_left` /
+`drag_right` / `hanging`）增删句子即可，改完重启生效。`angry`（被甩飞后的生气台词）
+目前只给星星配置了；黎深生气时使用内置固定台词。
 
 星星拖到屏幕左右边缘后会保持拎喵悬挂动作；悬挂期间点击只从 `hanging` 分类取台词，不会切换到普通点击表情。
 
@@ -110,15 +123,18 @@ Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按�
 
 ## 🎨 制作素材（可选，换角色时才需要）
 
-`assets/frames/` 里的 6 帧和 `assets/lishen.gif` 是用两个脚本从原图生成的：
+`assets/frames/` 里的 6 帧和 `assets/lishen.gif` / `assets/lishen.webp` 是用两个脚本从原图生成的：
 
 ```bash
 pip install opencv-python Pillow numpy
 python cut_and_matte.py   # 切割精灵图 + 边缘屏障洪水填充抠图（保留浅色底座）
-python make_anim.py       # 6 帧合成循环动图
+python make_anim.py       # 6 帧合成循环动图（GIF + 真透明 WEBP）
 ```
 
 把 `assets/spritesheet.jpg` 换成你自己的多表情精灵图，调一下脚本里的行列数即可。
+注意：两个脚本开头的 `BASE` 路径目前指向制作时的临时目录，运行前先改成你自己的
+`lishen-pet/assets` 路径。桌宠运行时只用 `assets/frames/` 的 6 帧 PNG 做轮播动画，
+`lishen.gif` / `lishen.webp` 仅用于展示与分享。
 
 ---
 
@@ -126,23 +142,31 @@ python make_anim.py       # 6 帧合成循环动图
 
 ```
 lishen-pet/
-├── main.py               # 桌宠主程序（PySide6）
+├── main.py               # 桌宠主程序（PySide6，macOS / Windows 开发调试用）
 ├── data/lines.json       # 台词库（分类，可自定义）
-├── assets/               # 帧图、动图、图标（美术素材，见免责声明）
-│   └── star/             # 星星角色 GIF 动作素材
+├── assets/               # 美术素材（见免责声明）
+│   ├── frames/           # 黎深 6 帧表情 PNG（运行时轮播动画）
+│   ├── star/             # 星星角色 16 个 GIF 动作素材
+│   ├── lishen.gif / lishen.webp   # 循环动图（展示用）
+│   ├── apple.png         # 喂食用的苹果
+│   ├── spritesheet.jpg   # 精灵图原图（制作帧图用）
+│   └── icon.png / icon_256.png    # 菜单栏 / 托盘图标
+├── windows/              # Windows 原生版（PowerShell + WinForms）
+│   ├── native-pet.ps1    # 桌宠主程序（无需 Python）
+│   ├── launch-native.vbs # 无窗口启动器
+│   ├── launch.ps1 / common.ps1    # 可选 Python 版的启动与依赖管理
+│   ├── enable-autostart-native.ps1 / disable-autostart.ps1
+│   └── diagnose-native.ps1 / self-test-native.ps1
 ├── cut_and_matte.py      # 抠图脚本（制作用）
 ├── make_anim.py          # 动画合成脚本（制作用）
-├── 启动黎深.command       # 一键启动
-├── 设置开机自启.command    # 一键开机自启（launchd）
-├── 启动黎深-Windows.cmd   # Windows 一键启动
-├── 启动黎深-Windows-Python.cmd # 可选 Python/PySide6 版本
-├── 设置开机自启-Windows.cmd
-├── 取消开机自启-Windows.cmd
-├── 测试主程序-Windows.cmd
-├── 诊断-Windows.cmd
-├── windows/               # Windows 原生 PowerShell 与可选 Python 脚本
+├── 启动黎深.command / 设置开机自启.command   # macOS 一键启动 / 自启
+├── 测试主程序.command / 诊断.command          # macOS 自检 / 诊断
+├── 启动黎深-Windows.cmd / 启动黎深-Windows-Python.cmd
+├── 设置开机自启-Windows.cmd / 取消开机自启-Windows.cmd
+├── 测试主程序-Windows.cmd / 诊断-Windows.cmd
 ├── requirements.txt
-└── 安装与使用说明.md
+├── 安装与使用说明.md
+└── LICENSE               # 代码 MIT；美术素材不适用
 ```
 
 ---
