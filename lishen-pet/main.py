@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-黎深桌宠 (Lishen Desktop Pet)
+恋与深空桌宠 (Love and Deepspace Desktop Pet)
 - 悬浮、透明、置顶的动图小黎深，可拖动、可点击
 - 点击 -> 弹气泡说一句"被戳"台词
 - 菜单栏(系统托盘)图标：让他说句话 / 显示·隐藏 / 开关提醒 / 退出

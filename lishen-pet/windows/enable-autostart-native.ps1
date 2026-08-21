@@ -16,7 +16,7 @@ try {
     }
 
     $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
-    $shortcutPath = Join-Path $startup '黎深桌宠.lnk'
+    $shortcutPath = Join-Path $startup '恋与深空桌宠.lnk'
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $wscript

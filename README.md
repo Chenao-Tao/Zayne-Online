@@ -1,4 +1,4 @@
-# 黎深桌宠 · Lishen Desktop Pet
+# 恋与深空桌宠 · Love and Deepspace Desktop Pet
 
 一只会陪你的桌面小宠物，支持 **macOS** 和 **Windows 11** 双平台：
 

@@ -1,4 +1,4 @@
-# 黎深桌宠 · Lishen Desktop Pet
+# 恋与深空桌宠 · Love and Deepspace Desktop Pet
 
 一只会陪你的 macOS / Windows 桌面小宠物。以《恋与深空》角色 **黎深（Zayne）** 的口吻，
 在整点、饭点和深夜随机冒出一句短短的关心；点他一下，他会回你话。悬浮、透明、
