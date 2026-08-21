@@ -1,11 +1,13 @@
-# 黎深桌宠 · Lishen Desktop Pet
+# 恋与深空桌宠 · Love and Deepspace Desktop Pet
 
-一只会陪你的 macOS 桌面小宠物。以《恋与深空》角色 **黎深（Zayne）** 的口吻，
+一只会陪你的 macOS / Windows 桌面小宠物。以《恋与深空》角色 **黎深（Zayne）** 的口吻，
 在整点、饭点和深夜随机冒出一句短短的关心；点他一下，他会回你话。悬浮、透明、
-置顶，可以拖着到处走，气泡会跟着他一起动。
+置顶，可以拖着到处走，气泡会跟着他一起动。从托盘菜单还能切换到 **星星（沈星回）**
+的猫猫形态——他有 16 个专属动作素材和另一套台词，可以喂苹果、甩飞、贴边悬挂。
 
 <p align="center">
-  <img src="assets/lishen.gif" width="180" alt="黎深桌宠动画">
+  <img src="assets/lishen.gif" width="170" height="170" alt="黎深动画">
+  <img src="assets/star/沈星回喵：嗨.gif" width="170" height="170" alt="星星动画">
 </p>
 
 > 情侣口吻的克制温柔，不说教、不肉麻、不"人机"。台词全部可自定义。
@@ -14,14 +16,19 @@
 
 ## ✨ 功能
 
-- **悬浮桌宠**：透明置顶的小动画，可拖动到屏幕任意位置。
+- **悬浮桌宠**：透明置顶的小动画，可拖动到屏幕任意位置；星星拖到屏幕左右边缘后会切换为悬挂动作并自动吸附。
 - **定时关心**：整点随机（带 ±12 分钟抖动，仅 7–23 点）、11:00 午饭提醒、
   18:00 晚饭提醒、23:30 深夜哄睡，每类台词最近不重复。
 - **点击互动**：戳一下弹出"被戳"台词（"专心。""戳我，是想说什么吗？"…）。
 - **磨砂气泡**：仿聊天界面的淡蓝圆角气泡 + 小尾巴 + 柔和阴影，拖动时同步跟随。
-- **菜单栏控制**：让他说句话 / 显示·隐藏桌宠 / 暂停提醒 / 退出。
-- **可选系统通知**：气泡的同时可一并发 macOS 通知。
-- **开机自启**：一键生成 launchd 配置，让他每次开机自动上线。
+- **状态互动**：支持 25 分钟专注、任务完成庆祝、陪伴发呆、连续点击热舞和长时间无操作困倦。
+- **喂食互动**：右键一级菜单点“喂食苹果”，拖着苹果靠近星星即可喂食，喂完自动回到普通状态。
+- **甩飞互动**：快速甩动桌宠可触发“飞出去”并在几秒后气鼓鼓地回来。
+- **甩飞设置**：托盘菜单可调整触发门槛，减少误触或提高触发率。
+- **显示控制**：支持 100% / 80% / 60% / 40% 透明度和鼠标穿透；穿透后从系统托盘关闭。
+- **菜单栏控制**：让角色说句话 / 状态控制 / 显示·隐藏 / 暂停提醒 / 重启桌宠 / 退出。
+- **安静待机**：定时关心只显示桌宠头顶气泡，默认不弹 Windows 右下角系统通知。
+- **开机自启**：macOS 使用 launchd，Windows 使用当前用户 Startup 文件夹。
 
 ---
 
@@ -33,7 +40,10 @@
 
 1. 下载 / clone 本仓库到本地。
 2. 双击 `启动黎深.command`。首次会自动创建独立环境并安装依赖（走清华镜像，约 1–2 分钟），之后秒开。
-3. 想让他常驻后台、开机自启：双击 `设置开机自启.command`。
+3. 想让他常驻后台、开机自启：双击 `设置开机自启.command`（取消自启：执行
+   `launchctl unload ~/Library/LaunchAgents/com.lishen.pet.plist` 并删除该文件）。
+4. 出问题先双击 `诊断.command`（生成 `诊断报告.txt`）；想验证启动流程，双击
+   `测试主程序.command`（自动跑 3 秒后退出，输出启动日志）。
 
 > 首次双击若提示"未验证的开发者"，到 **系统设置 → 隐私与安全性** 里点"仍要打开"即可。
 
@@ -49,10 +59,59 @@ python main.py
 
 ---
 
+## 🚀 安装与运行（Windows 11，无需 Python）
+
+> Windows 版本默认使用系统自带的 PowerShell 5.1 和 .NET WinForms，**不需要安装 Python、PySide6 或其他运行库**。
+> 原生版（`windows/native-pet.ps1`）与 macOS 的 PySide6 版功能一一对应：台词库、
+> 动画素材、甩飞物理、喂食与悬挂逻辑完全一致，只是渲染实现不同。
+
+**最简单：双击运行**
+
+1. 将整个 `lishen-pet` 文件夹放到本地路径。
+2. 双击 `启动黎深-Windows.cmd`，即可直接启动桌宠。
+3. 想让他随当前用户开机启动：双击 `设置开机自启-Windows.cmd`。
+4. 想取消：双击 `取消开机自启-Windows.cmd`。
+
+如果桌宠没有出现，先双击 `诊断-Windows.cmd`，查看生成的 `诊断报告-Windows.txt`。
+
+**手动用 PowerShell**
+
+```powershell
+cd lishen-pet
+wscript.exe .\windows\launch-native.vbs
+```
+
+**诊断与自检**
+
+- `诊断-Windows.cmd`：生成 `诊断报告-Windows.txt`。
+- `测试主程序-Windows.cmd`：运行 3 秒并生成 `主程序测试输出.txt`（内含 20 项自动断言，含"无新终端"检测）。
+- `启动黎深-Windows-Python.cmd`：可选的 PySide6/Python 版本，适合开发和调试。
+
+**运行日志**
+
+桌宠每次启动都会清空重写根目录的 `run.log`（启动过程分步记录），未捕获的错误追加写进
+`error.log`。排查问题时，把这两个日志文件连同诊断报告一起提供即可。
+
+**切换角色**
+
+启动后右键托盘图标，打开 **切换角色**，可以选择 **星星** 或 **黎深**。默认角色是星星；不同提醒和点击互动会自动使用对应的动作素材。
+
+使用星星时，按住角色拖到当前屏幕左侧或右侧边缘并松开，即可显示对应的拎喵动作并悬挂在侧边；再次拖离侧边即可恢复普通随机动作。
+托盘菜单里的 **喂食苹果** 会掉出一个苹果，拖着苹果靠近星星即可喂食；**触发门槛** 可直接调高或调低甩飞触发难度。
+
+Windows 原生版本不使用 macOS 的 `.command` 文件；macOS 版本仍按上面的 macOS 章节运行。
+
+---
+
 ## ⚙️ 自定义
 
-**改台词** —— 编辑 `data/lines.json`。按分类（`greeting` / `daily` / `night` /
-`cheer` / `miss` / `weather` / `lunch` / `dinner` / `poke`）增删句子即可，改完重启生效。
+**改台词** —— 编辑 `data/lines.json`。顶层 `categories` 是黎深台词；星星专属台词位于
+`characters.star.categories`。按分类（`greeting` / `daily` / `night` / `cheer` /
+`miss` / `weather` / `lunch` / `dinner` / `poke` / `feed` / `drag_left` /
+`drag_right` / `hanging`）增删句子即可，改完重启生效。`angry`（被甩飞后的生气台词）
+目前只给星星配置了；黎深生气时使用内置固定台词。
+
+星星拖到屏幕左右边缘后会保持拎喵悬挂动作；悬挂期间点击只从 `hanging` 分类取台词，不会切换到普通点击表情。
 
 **改时间、气泡样式、桌宠大小** —— 打开 `main.py`，顶部的配置区都有中文注释：
 `LUNCH_HOUR`、`DINNER_HOUR`、`NIGHT_HOUR`、`PET_HEIGHT`、`BUBBLE_FILL`（气泡颜色）、
@@ -64,15 +123,18 @@ python main.py
 
 ## 🎨 制作素材（可选，换角色时才需要）
 
-`assets/frames/` 里的 6 帧和 `assets/lishen.gif` 是用两个脚本从原图生成的：
+`assets/frames/` 里的 6 帧和 `assets/lishen.gif` / `assets/lishen.webp` 是用两个脚本从原图生成的：
 
 ```bash
 pip install opencv-python Pillow numpy
 python cut_and_matte.py   # 切割精灵图 + 边缘屏障洪水填充抠图（保留浅色底座）
-python make_anim.py       # 6 帧合成循环动图
+python make_anim.py       # 6 帧合成循环动图（GIF + 真透明 WEBP）
 ```
 
 把 `assets/spritesheet.jpg` 换成你自己的多表情精灵图，调一下脚本里的行列数即可。
+注意：两个脚本开头的 `BASE` 路径目前指向制作时的临时目录，运行前先改成你自己的
+`lishen-pet/assets` 路径。桌宠运行时只用 `assets/frames/` 的 6 帧 PNG 做轮播动画，
+`lishen.gif` / `lishen.webp` 仅用于展示与分享。
 
 ---
 
@@ -80,15 +142,31 @@ python make_anim.py       # 6 帧合成循环动图
 
 ```
 lishen-pet/
-├── main.py               # 桌宠主程序（PySide6）
+├── main.py               # 桌宠主程序（PySide6，macOS / Windows 开发调试用）
 ├── data/lines.json       # 台词库（分类，可自定义）
-├── assets/               # 帧图、动图、图标（美术素材，见免责声明）
+├── assets/               # 美术素材（见免责声明）
+│   ├── frames/           # 黎深 6 帧表情 PNG（运行时轮播动画）
+│   ├── star/             # 星星角色 16 个 GIF 动作素材
+│   ├── lishen.gif / lishen.webp   # 循环动图（展示用）
+│   ├── apple.png         # 喂食用的苹果
+│   ├── spritesheet.jpg   # 精灵图原图（制作帧图用）
+│   └── icon.png / icon_256.png    # 菜单栏 / 托盘图标
+├── windows/              # Windows 原生版（PowerShell + WinForms）
+│   ├── native-pet.ps1    # 桌宠主程序（无需 Python）
+│   ├── launch-native.vbs # 无窗口启动器
+│   ├── launch.ps1 / common.ps1    # 可选 Python 版的启动与依赖管理
+│   ├── enable-autostart-native.ps1 / disable-autostart.ps1
+│   └── diagnose-native.ps1 / self-test-native.ps1
 ├── cut_and_matte.py      # 抠图脚本（制作用）
 ├── make_anim.py          # 动画合成脚本（制作用）
-├── 启动黎深.command       # 一键启动
-├── 设置开机自启.command    # 一键开机自启（launchd）
+├── 启动黎深.command / 设置开机自启.command   # macOS 一键启动 / 自启
+├── 测试主程序.command / 诊断.command          # macOS 自检 / 诊断
+├── 启动黎深-Windows.cmd / 启动黎深-Windows-Python.cmd
+├── 设置开机自启-Windows.cmd / 取消开机自启-Windows.cmd
+├── 测试主程序-Windows.cmd / 诊断-Windows.cmd
 ├── requirements.txt
-└── 安装与使用说明.md
+├── 安装与使用说明.md
+└── LICENSE               # 代码 MIT；美术素材不适用
 ```
 
 ---
