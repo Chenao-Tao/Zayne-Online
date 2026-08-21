@@ -44,10 +44,12 @@ try {
         [pscustomobject]@{ Name = '状态入口'; Pass = $content -match '状态入口：True' },
         [pscustomobject]@{ Name = '显示控制'; Pass = $content -match '显示控制：Opacity=100; ClickThrough=True' },
         [pscustomobject]@{ Name = '系统通知'; Pass = $content -match '系统通知默认关闭：True' },
-        [pscustomobject]@{ Name = '生气台词'; Pass = $content -match '生气台词库：True' },
+        [pscustomobject]@{ Name = '躺平与饥饿'; Pass = $content -match '躺平素材：True' -and $content -match '饥饿台词库：True' },
         [pscustomobject]@{ Name = '甩飞功能'; Pass = $content -match '甩飞功能：True' },
         [pscustomobject]@{ Name = '状态动作'; Pass = $content -match '状态动作锁：True' },
         [pscustomobject]@{ Name = '状态锁定'; Pass = $content -match '悬挂状态锁：True' },
+        [pscustomobject]@{ Name = '饥饿喂食'; Pass = $content -match '饥饿可喂食：True' },
+        [pscustomobject]@{ Name = '重复喂食'; Pass = $content -match '重复喂食出新苹果：True' },
         [pscustomobject]@{ Name = '角色切换'; Pass = $content -match '切换角色：黎深' -and $content -match '切换角色：星星' },
         [pscustomobject]@{ Name = '消息循环退出'; Pass = $content -match 'Windows 原生版已退出' },
         [pscustomobject]@{ Name = '无新终端'; Pass = $newTerminals.Count -eq 0 }
